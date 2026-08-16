@@ -25,6 +25,6 @@ env/
 Thumbs.db
 *.swp
 
-# Large or regenerable outputs
-*.cif
+# Logs are regenerable; structures are NOT. Co-folded .cif files cost GPU credits and
+# cannot be reproduced for free, so they are tracked deliberately.
 *.log
