@@ -124,7 +124,9 @@ aptamer/
   1ALU.pdb                human IL-6 crystal structure, 1.9 Å (receptor input)
   switch_library.py       enumerate + rank ISD switch constructs -> switches.csv
   mismatch_tune.py        refine short-tether constructs with single DS mismatches
+  mismatches.csv          output: passing single-mismatch variants (dashboard view 9)
   negative_controls.py    do composition-matched controls separate from designed DS?
+  negative_controls.csv   output: designed + scrambled/reversed/foreign arms (view 10)
   benchmark.py            validate the model against published ISD measurements
   test_proto_language.py  smoke test: proto-language MCMC + ViennaRNA constraint on Windows
   dashboard.py            read the outputs above -> dashboard.html (all data inlined)

@@ -1,0 +1,111 @@
+{
+  "key": "boltz2__construct1__IL11",
+  "phase": "B",
+  "model": "boltz2",
+  "dna_id": "construct1",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+  "dna_len": 94,
+  "dna_kind": "switch construct",
+  "dna_rank": 1,
+  "dna_meta": {
+    "rank": 1,
+    "ds": "AACCCTCTTG",
+    "window": "11-20",
+    "tether_nt": "49",
+    "kd_app_nM": "971.2",
+    "dg_switch": "-2.19",
+    "closed_frac": "0.972",
+    "selectivity": "8.34",
+    "structure": "...........(((((((((((((.........................................................)))))))))))))"
+  },
+  "target": "IL11",
+  "target_uniprot": "P20809",
+  "target_chain_id": "A",
+  "target_seq_len": 178,
+  "target_mature_range": [
+    22,
+    199
+  ],
+  "seed": 42,
+  "wall_seconds": 88.2,
+  "success": true,
+  "structure_file": "structures/boltz2__construct1__IL11.cif",
+  "metrics": {
+    "primary_metric": "confidence_score",
+    "metric_type": "Boltz2Metrics",
+    "confidence_score": 0.5706644058227539,
+    "ptm": 0.6942288279533386,
+    "iptm": 0.3480152189731598,
+    "chains_ptm": [
+      0.8797615170478821,
+      0.40770840644836426
+    ],
+    "pair_chains_iptm": [
+      [
+        0.8797615170478821,
+        0.34473124146461487
+      ],
+      [
+        0.3480152189731598,
+        0.40770840644836426
+      ]
+    ],
+    "avg_pae": 14.406743049621582,
+    "ligand_iptm": 0.0,
+    "protein_iptm": 0.0,
+    "complex_plddt": 0.6263266801834106,
+    "complex_iplddt": 0.5585396885871887,
+    "complex_pde": 1.0954943895339966,
+    "complex_ipde": 7.9504547119140625
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 38,
+    "residues": {
+      "14": "P",
+      "15": "R",
+      "16": "A",
+      "19": "D",
+      "20": "S",
+      "23": "L",
+      "24": "L",
+      "43": "F",
+      "44": "P",
+      "46": "D",
+      "57": "L",
+      "61": "A",
+      "66": "A",
+      "68": "Q",
+      "91": "R",
+      "92": "R",
+      "93": "A",
+      "95": "G",
+      "96": "S",
+      "109": "Q",
+      "110": "A",
+      "111": "R",
+      "113": "D",
+      "114": "R",
+      "118": "R",
+      "126": "L",
+      "127": "A",
+      "142": "P",
+      "144": "S",
+      "145": "S",
+      "146": "A",
+      "147": "W",
+      "151": "R",
+      "162": "L",
+      "165": "D",
+      "169": "R",
+      "177": "R",
+      "178": "L"
+    }
+  },
+  "mean_per_residue_plddt": 0.6263,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}

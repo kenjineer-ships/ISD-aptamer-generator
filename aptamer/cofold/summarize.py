@@ -31,6 +31,39 @@ def jaccard(a: set, b: set) -> float | None:
     return len(a & b) / len(a | b)
 
 
+TOL = 2
+
+
+def jaccard_tolerant(a: set[int], b: set[int], tol: int = TOL) -> float | None:
+    """Jaccard where a residue counts as shared if the other set has one within +/-tol.
+
+    Residue-exact overlap is too strict for this comparison: two models can pick out the
+    same surface patch and still score near zero because their contact lists are offset by
+    a residue or two. This asks the weaker, more meaningful question - same site or not?
+    """
+    if not a and not b:
+        return None
+    a_hit = sum(any(x + d in b for d in range(-tol, tol + 1)) for x in a)
+    b_hit = sum(any(x + d in a for d in range(-tol, tol + 1)) for x in b)
+    denom = len(a) + len(b) - min(a_hit, b_hit)
+    return (min(a_hit, b_hit) / denom) if denom else None
+
+
+def segments(residues: set[int], gap: int = 4) -> list[str]:
+    """Collapse a residue set into contiguous patches, e.g. ['11-18', '109-127']."""
+    if not residues:
+        return []
+    xs = sorted(residues)
+    out, start, prev = [], xs[0], xs[0]
+    for x in xs[1:]:
+        if x - prev > gap:
+            out.append(f"{start}-{prev}" if start != prev else f"{start}")
+            start = x
+        prev = x
+    out.append(f"{start}-{prev}" if start != prev else f"{start}")
+    return out
+
+
 def main() -> None:
     recs = []
     for p in sorted(RESULTS.glob("*.json")):
@@ -54,11 +87,14 @@ def main() -> None:
     agreement = {"per_dna": {}, "note": "Jaccard overlap of the IL-6 residue set within 4.0 A of any DNA atom."}
     for dna_id in sorted({d for d, _ in epitopes}):
         models = sorted({m for d, m in epitopes if d == dna_id})
-        pairs = {}
+        pairs, pairs_tol = {}, {}
         for m1, m2 in combinations(models, 2):
             j = jaccard(epitopes[(dna_id, m1)], epitopes[(dna_id, m2)])
             pairs[f"{m1}|{m2}"] = None if j is None else round(j, 3)
+            jt = jaccard_tolerant(epitopes[(dna_id, m1)], epitopes[(dna_id, m2)])
+            pairs_tol[f"{m1}|{m2}"] = None if jt is None else round(jt, 3)
         vals = [v for v in pairs.values() if v is not None]
+        vals_tol = [v for v in pairs_tol.values() if v is not None]
         # residues any model calls, vs residues every model calls
         sets = [epitopes[(dna_id, m)] for m in models]
         consensus = set.intersection(*sets) if sets else set()
@@ -66,12 +102,43 @@ def main() -> None:
         agreement["per_dna"][dna_id] = {
             "models": models,
             "n_contacts_per_model": {m: len(epitopes[(dna_id, m)]) for m in models},
+            "contact_patches_per_model": {m: segments(epitopes[(dna_id, m)]) for m in models},
             "pairwise_jaccard": pairs,
             "mean_pairwise_jaccard": round(sum(vals) / len(vals), 3) if vals else None,
+            "pairwise_jaccard_tolerant_pm2": pairs_tol,
+            "mean_pairwise_jaccard_tolerant_pm2": round(sum(vals_tol) / len(vals_tol), 3) if vals_tol else None,
             "consensus_residues_all_models": sorted(consensus),
             "n_consensus": len(consensus),
             "n_union": len(union),
         }
+
+    # Which model is the odd one out? Mean tolerant-Jaccard of each model against every
+    # other model, averaged over DNA chains. A low score means that model puts the DNA
+    # somewhere nobody else does.
+    all_models = sorted({m for _, m in epitopes})
+    outlier = {}
+    for m in all_models:
+        vals = []
+        for dna_id in sorted({d for d, _ in epitopes}):
+            for other in all_models:
+                if other == m or (dna_id, other) not in epitopes or (dna_id, m) not in epitopes:
+                    continue
+                v = jaccard_tolerant(epitopes[(dna_id, m)], epitopes[(dna_id, other)])
+                if v is not None:
+                    vals.append(v)
+        outlier[m] = round(sum(vals) / len(vals), 3) if vals else None
+    agreement["mean_tolerant_jaccard_vs_all_others"] = outlier
+
+    # Residues that recur as consensus across DNA chains, for the models that do agree.
+    consensus_recurrence: dict[str, int] = {}
+    for dna_id in sorted({d for d, _ in epitopes}):
+        sets = [epitopes[(dna_id, m)] for m in all_models if (dna_id, m) in epitopes]
+        if sets:
+            for r in set.intersection(*sets):
+                consensus_recurrence[str(r)] = consensus_recurrence.get(str(r), 0) + 1
+    agreement["consensus_residue_recurrence_all_models"] = dict(
+        sorted(consensus_recurrence.items(), key=lambda kv: -kv[1])
+    )
 
     # ---- off-target margins (Phase B) ----
     phase_b = [r for r in ok if r.get("phase") == "B"]
@@ -143,9 +210,13 @@ def main() -> None:
     print(f"{len(ok)} ok / {len(bad)} failed -> cofold_summary.json")
     for dna_id, a in agreement["per_dna"].items():
         print(
-            f"  {dna_id}: models={a['models']} meanJaccard={a['mean_pairwise_jaccard']} "
+            f"  {dna_id}: meanJaccard={a['mean_pairwise_jaccard']} "
+            f"tolerant+-2={a['mean_pairwise_jaccard_tolerant_pm2']} "
             f"consensus={a['n_consensus']}/{a['n_union']}"
         )
+        for m, segs in a["contact_patches_per_model"].items():
+            print(f"      {m:9s} {','.join(segs)}")
+    print(f"  outlier check (mean tol-Jaccard vs others): {agreement['mean_tolerant_jaccard_vs_all_others']}")
     for k, e in offtarget.items():
         print(f"  {k} [{e['metric']}] on-target={e['on_target_IL6']} min_margin={e['min_margin']}")
         for t, d in e["off_targets"].items():

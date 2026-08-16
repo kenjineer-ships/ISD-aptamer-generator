@@ -1,0 +1,82 @@
+{
+  "key": "protenix__parent45__IL6",
+  "phase": "A",
+  "model": "protenix",
+  "dna_id": "parent45",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+  "dna_len": 45,
+  "dna_kind": "bare parent aptamer",
+  "dna_rank": 0,
+  "dna_meta": {
+    "kd_M": 2.7e-08,
+    "name": "IL-6-7326.1"
+  },
+  "target": "IL6",
+  "target_uniprot": "P05231",
+  "target_chain_id": "A",
+  "target_seq_len": 183,
+  "target_mature_range": [
+    30,
+    212
+  ],
+  "seed": 42,
+  "wall_seconds": 101.7,
+  "success": true,
+  "structure_file": "structures/protenix__parent45__IL6.cif",
+  "metrics": {
+    "primary_metric": "confidence_score",
+    "metric_type": "ProtenixMetrics",
+    "confidence_score": 0.6150062680244446,
+    "ptm": 0.83021080493927,
+    "iptm": 0.5612051486968994,
+    "avg_plddt": 0.7491046142578125,
+    "gpde": 0.6560815572738647,
+    "avg_pae": 9.034693368500463,
+    "chain_ptm": [
+      0.8935477137565613,
+      0.37385544180870056
+    ],
+    "chain_plddt": [
+      0.7767014503479004,
+      0.7058696150779724
+    ],
+    "chain_pair_iptm": [
+      [
+        0.0,
+        0.5612051486968994
+      ],
+      [
+        0.5612051486968994,
+        0.0
+      ]
+    ],
+    "has_clash": false
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 15,
+    "residues": {
+      "11": "A",
+      "12": "A",
+      "13": "P",
+      "14": "H",
+      "15": "R",
+      "26": "K",
+      "27": "Q",
+      "30": "Y",
+      "36": "S",
+      "117": "S",
+      "120": "V",
+      "124": "F",
+      "170": "K",
+      "174": "Q",
+      "178": "R"
+    }
+  },
+  "mean_per_residue_plddt": 0.7622,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}

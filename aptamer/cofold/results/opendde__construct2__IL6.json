@@ -1,0 +1,78 @@
+{
+  "key": "opendde__construct2__IL6",
+  "phase": "A",
+  "model": "opendde",
+  "dna_id": "construct2",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCAATTCAACCC",
+  "dna_len": 98,
+  "dna_kind": "switch construct",
+  "dna_rank": 2,
+  "dna_meta": {
+    "rank": 2,
+    "ds": "CAATTCAACCC",
+    "window": "16-26",
+    "tether_nt": "53",
+    "kd_app_nM": "984.2",
+    "dg_switch": "-2.2",
+    "closed_frac": "0.973",
+    "selectivity": "8.23",
+    "structure": "................(((((((((((............................................................)))))))))))"
+  },
+  "target": "IL6",
+  "target_uniprot": "P05231",
+  "target_chain_id": "A",
+  "target_seq_len": 183,
+  "target_mature_range": [
+    30,
+    212
+  ],
+  "seed": 42,
+  "wall_seconds": 153.3,
+  "success": true,
+  "structure_file": "structures/opendde__construct2__IL6.cif",
+  "metrics": {
+    "primary_metric": "avg_plddt",
+    "metric_type": "OpenDDEMetrics",
+    "avg_plddt": 61.19013595581055,
+    "ptm": 0.7693367004394531,
+    "iptm": 0.6329703330993652,
+    "gpde": 0.7664936780929565,
+    "ranking_score": 0.6602436304092407,
+    "has_clash": false
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 23,
+    "residues": {
+      "17": "P",
+      "18": "L",
+      "19": "T",
+      "20": "S",
+      "21": "S",
+      "22": "E",
+      "23": "R",
+      "24": "I",
+      "36": "S",
+      "48": "M",
+      "51": "S",
+      "53": "K",
+      "56": "L",
+      "62": "N",
+      "69": "K",
+      "93": "F",
+      "97": "L",
+      "124": "F",
+      "128": "K",
+      "156": "W",
+      "169": "F",
+      "170": "K",
+      "183": "M"
+    }
+  },
+  "mean_per_residue_plddt": 0.0,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}

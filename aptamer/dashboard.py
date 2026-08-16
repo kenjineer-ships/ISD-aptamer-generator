@@ -1,10 +1,18 @@
 """Render the pipeline's outputs as one self-contained dashboard.html at the repo root.
 
-Reads whatever the pipeline has written so far (parents.json, switches.csv, *.pdb / *.cif)
-and inlines it into a single HTML file as JSON. Nothing is fetched at runtime: the dashboard
-is opened over file://, where Chrome blocks local XHR/fetch as cross-origin.
+Reads whatever the pipeline has written so far (parents.json, switches.csv, mismatches.csv,
+negative_controls.csv, *.pdb / *.cif) and inlines it into a single HTML file as JSON. Nothing
+is fetched at runtime: the dashboard is opened over file://, where Chrome blocks local
+XHR/fetch as cross-origin.
 
     python aptamer/dashboard.py        -> ./dashboard.html
+
+Note which parent the constructs sit on. switch_library.PARENT is "IL-6-7326.1", a 45-nt
+TRUNCATION (module B removed) of the 74-nt "IL-6-7326" row in parents.json -- that name
+matches no row of the parent table, so construct_parent() resolves it through
+build_parents.parent() and the page says so in four places (page banner, the parent table's
+role column with the removed tail struck through, the switch-library heading, views 9-10).
+A reader must never be left to assume the 74-mer.
 
 Missing inputs degrade to a "not yet generated" card; they never raise. No science is
 recomputed here -- dg_switch, KD_app, structures and MFEs are read as produced. The only
@@ -26,6 +34,7 @@ copy is deleted at runtime -- see dropFornacGlobalCss() in the JS.
 import csv
 import json
 import pathlib
+import statistics
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -106,6 +115,13 @@ NUMERIC = {
     "gc": float, "dg_switch": float, "closed_frac": float,
     "kd_app_nM": float, "engagement": float,
 }
+# Columns newer revisions of switch_library added. Cast them when present but never require
+# them: a switches.csv written before they existed must still fill the table, so a missing
+# key here costs one feature (the view-9 tether comparison) rather than every switch row.
+OPTIONAL = {
+    "selectivity": float, "tether_nt": int,
+    "dg_designed": float, "dg_homodimer": float, "dg_hairpin": float,
+}
 
 
 def read_switches():
@@ -123,6 +139,12 @@ def read_switches():
         try:
             for k, cast in NUMERIC.items():
                 r[k] = cast(r[k])
+            for k, cast in OPTIONAL.items():
+                if r.get(k) not in (None, ""):
+                    try:
+                        r[k] = cast(r[k])
+                    except Exception:
+                        r.pop(k, None)
             start, end = r["window"].split("-")
             r["w0"], r["w1"] = int(start), int(end)
             r["rank"] = i + 1  # file order IS the pipeline ranking
@@ -132,6 +154,183 @@ def read_switches():
     if len(out) != len(rows):
         NOTES.append(f"switches.csv: {len(rows) - len(out)} malformed row(s) skipped")
     return out
+
+
+def _read_rows(name, numeric, script):
+    """CSV -> list of dicts with `numeric` cast. Missing file returns None; a malformed row is
+    dropped and reported. Nothing here raises: the section it feeds degrades instead."""
+    p = HERE / name
+    if not p.exists():
+        return None
+    try:
+        with p.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+    except Exception as exc:
+        NOTES.append(f"{name} unreadable: {exc}")
+        return None
+    out = []
+    for i, r in enumerate(rows):
+        try:
+            for k, cast in numeric.items():
+                r[k] = cast(r[k])
+            r["rank"] = i + 1  # file order IS the pipeline's own ordering
+            out.append(r)
+        except Exception:
+            continue
+    if len(out) != len(rows):
+        NOTES.append(f"{name}: {len(rows) - len(out)} malformed row(s) skipped -- "
+                     f"regenerate with python aptamer/{script}")
+    return out
+
+
+MM_NUMERIC = {
+    "linker_len": int, "mismatch_pos": int, "rand_covered": int, "tether_nt": int,
+    "kd_app_wt_nM": float, "d_kd_nM": float, "dg_switch": float, "closed_frac": float,
+    "kd_app_nM": float, "engagement": float, "selectivity": float,
+}
+NC_NUMERIC = {
+    "linker_len": int, "tether_nt": int, "dg_switch": float, "closed_frac": float,
+    "kd_app_nM": float, "engagement": float, "selectivity": float,
+    "passes": lambda v: str(v).strip().lower() in ("true", "1", "yes"),
+}
+ARMS = ("designed", "scrambled", "reversed", "foreign")
+ARM_NOTE = {
+    "designed": "the displacement strand the pipeline designed",
+    "scrambled": "same bases, shuffled — complementarity destroyed",
+    "reversed": "same bases, reversed not complemented — wrong pairing register",
+    "foreign": "reverse complement of a window of a SHUFFLED aptamer — a real duplex-former "
+               "that is simply not complementary to this aptamer (the strict control)",
+}
+
+
+def read_mismatches():
+    return _read_rows("mismatches.csv", MM_NUMERIC, "mismatch_tune.py")
+
+
+def read_controls():
+    return _read_rows("negative_controls.csv", NC_NUMERIC, "negative_controls.py")
+
+
+def mismatch_context(mismatches, switches):
+    """Price each variant's affinity in tether length instead of mismatches.
+
+    A mismatch is the only knob that moves K_D,app without moving either length, so the honest
+    comparison is: what tether would the unmutated library need to reach the same K_D,app while
+    covering at least as many randomised nucleotides? Annotates each row with `tether_equiv`
+    and returns the headline numbers. None when switches.csv predates tether_nt.
+    """
+    if not mismatches:
+        return None
+    pool = [r for r in (switches or [])
+            if isinstance(r.get("tether_nt"), int) and "rand_covered" in r]
+    if not pool:
+        NOTES.append("switches.csv has no tether_nt column, so view 9 shows the before/after "
+                     "without the equivalent-tether comparison")
+        return None
+    for r in mismatches:
+        ts = [q["tether_nt"] for q in pool
+              if q["kd_app_nM"] <= r["kd_app_nM"] and q["rand_covered"] >= r["rand_covered"]]
+        r["tether_equiv"] = min(ts) if ts else None
+    tethers = [r["tether_nt"] for r in mismatches]
+    covered = max(r["rand_covered"] for r in mismatches)
+    best = min(mismatches, key=lambda r: r["kd_app_nM"])
+    best_cov = min((r for r in mismatches if r["rand_covered"] == covered),
+                   key=lambda r: r["kd_app_nM"])
+    lib = [q for q in pool if q["rand_covered"] >= covered]
+    lib_best = min(lib, key=lambda q: q["kd_app_nM"]) if lib else None
+    # The construct the mismatch is actually competing with: the SHORTEST-tether unmutated
+    # construct that matches best_cov's affinity while covering at least as much. lib_best is a
+    # different (and weaker) comparison -- it is the tightest anywhere in the library, and it
+    # gets there by spending tether.
+    alt = [q for q in lib if q["kd_app_nM"] <= best_cov["kd_app_nM"]]
+    match_alt = min(alt, key=lambda q: (q["tether_nt"], q["kd_app_nM"])) if alt else None
+    keep = ("ds", "window", "kd_app_nM", "tether_nt", "rand_covered")
+    return {
+        "n": len(mismatches),
+        "nBase": len({(r["ds_wt"], r["linker_len"]) for r in mismatches}),
+        "improved": sum(1 for r in mismatches if r["d_kd_nM"] < 0),
+        "tetherLo": min(tethers), "tetherHi": max(tethers),
+        "best": {k: best[k] for k in
+                 ("name", "kd_app_wt_nM", "kd_app_nM", "d_kd_nM", "tether_nt",
+                  "rand_covered", "tether_equiv")},
+        "covered": covered,
+        "bestCovered": {k: best_cov[k] for k in
+                        ("name", "kd_app_wt_nM", "kd_app_nM", "d_kd_nM", "tether_nt",
+                         "rand_covered", "tether_equiv")},
+        "libBest": None if not lib_best else {k: lib_best[k] for k in keep},
+        "matchAlt": None if not match_alt else {k: match_alt[k] for k in keep},
+    }
+
+
+def control_summary(controls):
+    """Median score per arm plus pass rate. Medians, not means: the control arms are floored at
+    engagement 0 and a mean would be dragged by the handful of accidental pairings."""
+    if not controls:
+        return []
+    arms = [a for a in ARMS if any(r["arm"] == a for r in controls)]
+    arms += sorted({r["arm"] for r in controls} - set(arms))
+    med = lambda rows, k: statistics.median(r[k] for r in rows)  # noqa: E731
+    designed = [r for r in controls if r["arm"] == "designed"]
+    ref = med(designed, "engagement") if designed else None
+    out = []
+    for a in arms:
+        rows = [r for r in controls if r["arm"] == a]
+        out.append({
+            "arm": a, "n": len(rows), "note": ARM_NOTE.get(a, ""),
+            "dg_switch": round(med(rows, "dg_switch"), 2),
+            "closed_frac": round(med(rows, "closed_frac"), 3),
+            "kd_app_nM": round(med(rows, "kd_app_nM"), 1),
+            "engagement": round(med(rows, "engagement"), 2),
+            "engMax": round(max(r["engagement"] for r in rows), 2),
+            "dgLo": round(min(r["dg_switch"] for r in rows), 2),
+            "dgHi": round(max(r["dg_switch"] for r in rows), 2),
+            "passRate": sum(1 for r in rows if r["passes"]) / len(rows),
+            "reachRef": None if ref is None else
+            sum(1 for r in rows if r["engagement"] >= ref) / len(rows),
+        })
+    return out
+
+
+def construct_parent(parents, switches):
+    """The sequence the constructs are actually built on -- resolved, never assumed.
+
+    switch_library.PARENT is "IL-6-7326.1", which is not a row in parents.json: it is the
+    45-nt truncation of "IL-6-7326". Preference order: build_parents.parent(), the single
+    place that owns the truncation; else peel a construct apart (construct = aptamer + linker
+    + DS, so the aptamer is a straight prefix slice); else the exact-name row if one exists.
+    """
+    seq = None
+    try:
+        import build_parents as _bp
+
+        seq = _bp.parent(SWITCH_PARENT)[0]
+    except Exception:
+        pass
+    if not seq:
+        for r in switches or []:
+            n = len(r.get("construct", "")) - r["linker_len"] - r["ds_len"]
+            if n > 0:
+                seq = r["construct"][:n]
+                break
+    if not seq:
+        seq = next((p["sequence"] for p in (parents or []) if p["name"] == SWITCH_PARENT), None)
+    if not seq:
+        NOTES.append(f"could not resolve the sequence of the construct parent {SWITCH_PARENT}; "
+                     "view 6 and the parent labelling degrade")
+        return None
+    exact = next((p for p in (parents or []) if p["sequence"] == seq), None)
+    src = next((p for p in (parents or [])
+                if p["sequence"].startswith(seq) and p["length"] > len(seq)), None)
+    return {
+        "name": SWITCH_PARENT,
+        "sequence": seq,
+        "length": len(seq),
+        "truncated": bool(src),
+        "source": src["name"] if src else (exact["name"] if exact else None),
+        "sourceLength": src["length"] if src else None,
+        "removed": src["sequence"][len(seq):] if src else "",
+        "kdNM": (src or exact or {}).get("kd_nM"),
+    }
 
 
 def read_structures():
@@ -207,12 +406,19 @@ def design_window(switches):
 def build_data():
     parents = read_parents()
     switches = read_switches()
+    mismatches = read_mismatches()
+    controls = read_controls()
     structures = read_structures()
     lo, hi, cap = design_window(switches)
+    cparent = construct_parent(parents, switches)
     return {
         "generated": None,
         "parents": parents,
         "switches": switches,
+        "mismatches": mismatches,
+        "mismatchHeadline": mismatch_context(mismatches, switches),
+        "controls": controls,
+        "controlSummary": control_summary(controls),  # each row carries its own arm note
         "structures": structures,
         "occupancy": occupancy_series(parents),
         "occupancyTable": occupancy_table(parents),
@@ -224,8 +430,10 @@ def build_data():
         "budget": BUDGET,
         "randomised": RANDOMISED,
         "switchParent": SWITCH_PARENT,
-        "parentSeq": next((p["sequence"] for p in (parents or [])
-                           if p["name"] == SWITCH_PARENT), None),
+        # The truncated parent, resolved -- an exact-name lookup in parents.json returns nothing
+        # for "IL-6-7326.1" and used to leave view 6 empty.
+        "constructParent": cparent,
+        "parentSeq": cparent["sequence"] if cparent else None,
         "notes": NOTES,
     }
 
@@ -325,6 +533,23 @@ code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; f
   background:rgba(250,178,25,0.14); border:1px solid rgba(250,178,25,0.45); font-size:12.5px; }
 .issues b { font-weight:600; }
 .issues ul { margin:6px 0 0 18px; padding:0; }
+/* caveats that must be read before the chart, not after it: same amber as .issues, but sits
+   above the figure it qualifies. Views 9-10 use it; the text is static HTML so it survives
+   even if the chart JS fails. */
+.caveat { margin:0 0 12px; padding:10px 12px; border-radius:10px;
+  background:rgba(250,178,25,0.14); border:1px solid rgba(250,178,25,0.45); font-size:12.5px;
+  line-height:1.5; }
+.caveat + .caveat { margin-top:-4px; }
+.caveat b { font-weight:600; }
+.callout { margin:0 0 14px; padding:11px 13px; border-radius:10px; background:var(--wash);
+  border:1px solid var(--border); font-size:12.5px; line-height:1.55; }
+.callout b { font-weight:600; }
+/* a struck-through nucleotide run: the part of a full-length parent the construct drops */
+.cut { color:var(--muted); text-decoration:line-through; text-decoration-thickness:1px; }
+.keep { background:var(--wash); border-radius:3px; }
+/* a colour key inline in a table cell -- the number itself stays in an ink token */
+.dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;
+  vertical-align:middle; }
 
 .filters { display:flex; flex-wrap:wrap; gap:14px 18px; align-items:flex-end;
   background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
@@ -535,6 +760,53 @@ function guard(id, fn) {
   try { fn(n); } catch (e) { empty(n, 'could not render this view: ' + e.message); }
 }
 
+/* ---------- a sortable table in ~25 lines; no datatable library -------------------------
+   cols: {k, h, d (decimals), text (left-align + monospace), cell (custom renderer), tip}
+   state: {k, d, draw} -- `draw` re-renders the caller so the arrow and order stay in sync. */
+function sortableTable(node, cols, rows, state) {
+  const num = v => (v === null || v === undefined) ? Infinity : v;  /* blanks sort last */
+  const data = rows.slice().sort((a, b) => {
+    const x = a[state.k], y = b[state.k];
+    if (typeof x === 'string' || typeof y === 'string')
+      return state.d * String(x).localeCompare(String(y));
+    return state.d * (num(x) - num(y));
+  });
+  node.textContent = '';
+  const wrap = document.createElement('div'); wrap.className = 'scroll';
+  const t = document.createElement('table');
+  const thead = document.createElement('thead'), tr = document.createElement('tr');
+  cols.forEach(c => {
+    const th = document.createElement('th');
+    th.className = 'sortable' + (c.text ? ' l' : '');
+    th.textContent = c.h;
+    const a = document.createElement('span'); a.className = 'arrow';
+    a.textContent = state.k === c.k ? (state.d > 0 ? ' ▲' : ' ▼') : '';
+    th.appendChild(a);
+    th.title = c.tip || ('sort by ' + c.h);
+    th.addEventListener('click', () => {
+      if (state.k === c.k) state.d = -state.d; else { state.k = c.k; state.d = 1; }
+      state.draw();
+    });
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr); t.appendChild(thead);
+  const tb = document.createElement('tbody');
+  data.forEach(r => {
+    const row = document.createElement('tr');
+    cols.forEach(c => {
+      const td = document.createElement('td');
+      if (c.cell) { c.cell(td, r); }
+      else if (c.text) { td.className = 'l mono'; td.textContent = r[c.k]; }
+      else td.textContent = (r[c.k] === null || r[c.k] === undefined) ? '—' : fmt(r[c.k], c.d);
+      row.appendChild(td);
+    });
+    if (r.__title) row.title = r.__title;
+    tb.appendChild(row);
+  });
+  t.appendChild(tb); wrap.appendChild(t); node.appendChild(wrap);
+  if (!data.length) empty(node, 'no rows');
+}
+
 /* =========================================================================
    VIEW 1 - parent aptamer table
    ========================================================================= */
@@ -548,24 +820,28 @@ function renderParents() {
     t.innerHTML = '';
     const head = ['Aptamer', 'Variant', 'Length (nt)', 'K_D (nM)', 'k_off (s⁻¹)',
                   'Residence time 1/k_off (s)', 'MFE 22 °C (kcal/mol)',
-                  'MFE 37 °C (kcal/mol)', 'Reconstruction'];
+                  'MFE 37 °C (kcal/mol)', 'Reconstruction',
+                  'Role in this pipeline'];
     const thead = document.createElement('thead'), htr = document.createElement('tr');
     head.forEach((h, i) => { const th = document.createElement('th');
-      th.textContent = h; if (i < 2 || i === 8) th.className = 'l'; htr.appendChild(th); });
+      th.textContent = h; if (i < 2 || i >= 8) th.className = 'l'; htr.appendChild(th); });
     thead.appendChild(htr); t.appendChild(thead);
     const tb = document.createElement('tbody');
+    const cp = DATA.constructParent;
     rows.forEach(r => {
+      const isSource = !!(cp && cp.truncated && r.name === cp.source);
+      const isParent = !!(cp && r.name === cp.name);
       const tr = document.createElement('tr');
       const cells = [
         [r.name, 'l'], [r.variant, 'l'], [String(r.length), ''],
         [fmt(r.kd_nM, 1), ''], [(r.koff_s || 0).toExponential(2), ''],
         [r.residence_s ? fmt(r.residence_s, 0) : '—', ''],
-        [(r.mfe_22C).toFixed(2), ''], [(r.mfe_37C).toFixed(2), ''], [null, 'l']
+        [(r.mfe_22C).toFixed(2), ''], [(r.mfe_37C).toFixed(2), ''],
+        ['@badge', 'l'], ['@role', 'l']
       ];
       cells.forEach(([v, cls]) => {
         const td = document.createElement('td'); if (cls) td.className = cls;
-        if (v !== null) td.textContent = v;
-        else {
+        if (v === '@badge') {
           const b = document.createElement('span');
           const bad = (r.issues || []).length;
           b.className = 'badge ' + (bad ? 'warn' : 'ok');
@@ -573,7 +849,26 @@ function renderParents() {
           ic.textContent = bad ? '⚠' : '✓'; b.appendChild(ic);
           b.appendChild(document.createTextNode(bad ? bad + ' uncertain nt' : 'clean'));
           td.appendChild(b);
-        }
+        } else if (v === '@role') {
+          /* the point of this column: the constructs are built on a 45-nt truncation, so no
+             row of this table is itself the scaffold. Say which row it came from. */
+          if (isSource) {
+            const b = document.createElement('span'); b.className = 'badge warn';
+            const ic = document.createElement('span'); ic.className = 'ic';
+            ic.textContent = '⚠'; b.appendChild(ic);
+            b.appendChild(document.createTextNode('full-length source, not the scaffold'));
+            td.appendChild(b);
+            const s = document.createElement('div');
+            s.className = 'sub'; s.style.marginTop = '3px';
+            s.textContent = 'constructs use its first ' + cp.length + ' nt as ' + cp.name;
+            td.appendChild(s);
+          } else if (isParent) {
+            td.textContent = 'the construct parent (' + r.length + ' nt)';
+          } else {
+            td.className = 'l muted';
+            td.textContent = cp ? 'not used in the switch library' : '—';
+          }
+        } else td.textContent = v;
         tr.appendChild(td);
       });
       tb.appendChild(tr);
@@ -581,11 +876,27 @@ function renderParents() {
       const td = document.createElement('td');
       td.colSpan = head.length; td.className = 'l';
       const s = document.createElement('div'); s.className = 'seq';
-      s.textContent = r.sequence; td.appendChild(s);
+      if (isSource) {
+        /* kept vs removed, drawn on the sequence itself: the strike-through is the module the
+           truncation drops, so the 45-mer the constructs use is visible in place. */
+        const keep = document.createElement('span');
+        keep.className = 'keep'; keep.textContent = r.sequence.slice(0, cp.length);
+        const drop = document.createElement('span');
+        drop.className = 'cut'; drop.textContent = r.sequence.slice(cp.length);
+        s.appendChild(keep); s.appendChild(drop);
+      } else s.textContent = r.sequence;
+      td.appendChild(s);
       const d = document.createElement('div');
       d.className = 'seq muted'; d.style.marginTop = '2px';
       d.textContent = r.structure_37C + '   (37 °C)';
       td.appendChild(d);
+      if (isSource) {
+        const c = document.createElement('div');
+        c.className = 'sub'; c.style.marginTop = '4px';
+        c.textContent = 'kept 1–' + cp.length + ' (highlighted) → ' + cp.name +
+          ' · removed ' + (cp.length + 1) + '–' + r.length + ' (struck through, module B)';
+        td.appendChild(c);
+      }
       sr.appendChild(td); tb.appendChild(sr);
     });
     t.appendChild(tb); wrap.appendChild(t); node.appendChild(wrap);
@@ -1346,11 +1657,366 @@ function render3D() {
   }
 }
 
+/* =========================================================================
+   VIEW 9 - mismatch refinement: before -> after at a FIXED tether
+   Form: dumbbell. The job is "before -> after per item" (one hue, two shades), and the item
+   identity is the variant, so a bar chart of the after-value alone would throw away the whole
+   point -- that the tether did not move. Direction of change carries polarity, so the
+   connector takes the diverging pair (cool = tighter, warm = looser) while the two endpoint
+   marks stay one hue in two shades and are told apart by fill, not only colour.
+   ========================================================================= */
+const MM = DATA.mismatches || [];
+const MMH = DATA.mismatchHeadline;
+const MM_EMPTY = 'mismatches.csv not yet generated — run python aptamer/mismatch_tune.py';
+
+function renderMismatchChart() {
+  guard('mm-chart', node => {
+    if (!MM.length) return empty(node, MM_EMPTY);
+    node.textContent = '';
+    const rows = MM.slice().sort((a, b) => a.d_kd_nM - b.d_kd_nM);
+    const rowH = 19, m = {t:52, r:172, b:58, l:120};
+    const W = Math.max(620, Math.min(node.clientWidth || 900, 1000));
+    const H = m.t + rows.length * rowH + m.b;
+    const svg = el('svg', {width:'100%', viewBox:'0 0 ' + W + ' ' + H, role:'img',
+      'aria-label':'Apparent K_D of each construct before and after a single DS mismatch, ' +
+                   'at unchanged tether length'}, node);
+    const ref = MMH && MMH.matchAlt;      /* the shortest-tether unmutated alternative */
+    const vals = [];
+    rows.forEach(r => vals.push(r.kd_app_nM, r.kd_app_wt_nM));
+    if (ref) vals.push(ref.kd_app_nM);
+    const lo = Math.pow(10, Math.floor(Math.log10(Math.min.apply(null, vals))));
+    const hi = Math.pow(10, Math.ceil(Math.log10(Math.max.apply(null, vals))));
+    const x = log(lo, hi, m.l, W - m.r);
+    const vline = (v, col, dash) => el('line', {x1:x(v), x2:x(v), y1:m.t - 6,
+      y2:m.t + rows.length * rowH + 4, stroke:col, 'stroke-width':1,
+      'stroke-dasharray':dash || null, 'shape-rendering':dash ? null : 'crispEdges'}, svg);
+    for (let e = Math.log10(lo); e <= Math.log10(hi) + 1e-9; e++) {
+      const v = Math.pow(10, e);
+      vline(v, P.grid);
+      txt(svg, x(v), m.t + rows.length * rowH + 20, fmt(v, 0),
+          {'text-anchor':'middle', 'font-size':10.5, fill:P.muted});
+      for (let k = 2; k < 10; k++) { const vv = v * k; if (vv > hi) break; vline(vv, P.grid); }
+    }
+    txt(svg, (m.l + W - m.r) / 2, H - 20,
+        'K_D,app (nM, log) — open mark = unmutated construct, filled mark = single mismatch',
+        {'text-anchor':'middle', 'font-size':11.5, fill:P.ink2});
+
+    /* the construct the mismatch is arguing against: the shortest-tether UNMUTATED construct
+       that matches the best variant's affinity while covering at least as much, and what that
+       costs in tether. */
+    if (ref) {
+      vline(ref.kd_app_nM, P.ink2, '4 3');
+      /* the annotation sits on whichever side of the rule has room */
+      const mid = (m.l + W - m.r) / 2, left = x(ref.kd_app_nM) < mid;
+      const ax = x(ref.kd_app_nM) + (left ? 7 : -7), anch = left ? 'start' : 'end';
+      txt(svg, ax, m.t - 24,
+          'no mismatch, covering ≥ ' + MMH.covered + ' randomised nt: ' +
+          fmt(ref.kd_app_nM, 0) + ' nM',
+          {'text-anchor':anch, 'font-size':10.5, fill:P.ink2});
+      txt(svg, ax, m.t - 12, 'but it costs a ' + ref.tether_nt + '-nt tether',
+          {'text-anchor':anch, 'font-size':10.5, fill:P.ink2});
+    }
+    /* the two right-hand columns: the tether never moves, which is the entire claim */
+    txt(svg, W - m.r + 12, m.t - 24, 'tether', {'font-size':10.5, fill:P.ink2});
+    txt(svg, W - m.r + 12, m.t - 12, '(nt, fixed)', {'font-size':10, fill:P.muted});
+    txt(svg, W - m.r + 84, m.t - 24, 'same K_D', {'font-size':10.5, fill:P.ink2});
+    txt(svg, W - m.r + 84, m.t - 12, 'via linker (nt)', {'font-size':10, fill:P.muted});
+
+    const best3 = rows.slice().sort((a, b) => a.kd_app_nM - b.kd_app_nM).slice(0, 3)
+                      .map(r => r.name);
+    rows.forEach((r, i) => {
+      const y = m.t + i * rowH + rowH / 2;
+      const better = r.d_kd_nM < 0;
+      const col = better ? P.s1 : P.s2;
+      el('line', {x1:x(r.kd_app_wt_nM), x2:x(r.kd_app_nM), y1:y, y2:y, stroke:col,
+                  'stroke-width':2, 'stroke-linecap':'round'}, svg);
+      el('circle', {cx:x(r.kd_app_wt_nM), cy:y, r:4.5, fill:P.surface, stroke:P.muted,
+                    'stroke-width':2}, svg);
+      el('circle', {cx:x(r.kd_app_nM), cy:y, r:5, fill:col, stroke:P.surface,
+                    'stroke-width':2}, svg);
+      txt(svg, m.l - 10, y + 3.5, r.name, {'text-anchor':'end', 'font-size':10.5,
+        fill:P.ink2, 'font-family':'ui-monospace, Consolas, monospace'});
+      txt(svg, W - m.r + 12, y + 3.5, String(r.tether_nt),
+          {'font-size':10.5, fill:P.ink2});
+      txt(svg, W - m.r + 84, y + 3.5,
+          r.tether_equiv === null || r.tether_equiv === undefined ? '—' : String(r.tether_equiv),
+          {'font-size':10.5, fill:P.muted});
+      /* direct-label only the three tightest, not every mark */
+      if (best3.indexOf(r.name) >= 0)
+        txt(svg, x(r.kd_app_nM) - 10, y + 3.5, fmt(r.kd_app_nM, 0) + ' nM',
+            {'text-anchor':'end', 'font-size':10.5, fill:P.ink});
+      const band = el('rect', {x:m.l, y:y - rowH / 2, width:W - m.r - m.l, height:rowH,
+                               fill:'transparent'}, svg);
+      band.addEventListener('pointermove', ev => showTip(ev, [
+        {value:r.name, color:col},
+        {value:r.ds_wt + ' → ' + r.ds, name:'DS, position ' + r.mismatch_pos},
+        {value:fmt(r.kd_app_wt_nM, 1) + ' → ' + fmt(r.kd_app_nM, 1) + ' nM', name:'K_D,app'},
+        {value:(r.d_kd_nM > 0 ? '+' : '') + fmt(r.d_kd_nM, 1) + ' nM',
+         name:better ? 'tighter' : 'looser'},
+        {value:r.tether_nt + ' nt (unchanged)', name:'tether'},
+        {value:r.tether_equiv === null || r.tether_equiv === undefined ? 'not reachable' :
+               r.tether_equiv + ' nt', name:'tether needed to buy this K_D by lengthening'},
+        {value:r.dg_switch.toFixed(2) + ' kcal/mol', name:'ΔG_switch'},
+        {value:r.closed_frac.toFixed(3), name:'closed fraction'},
+        {value:r.engagement.toFixed(2), name:'engagement'},
+        {value:String(r.rand_covered), name:'randomised nt covered'}
+      ]));
+      band.addEventListener('pointerleave', hideTip);
+    });
+
+    const lg = document.createElement('div'); lg.className = 'legend';
+    const key = (label, make) => {
+      const k = document.createElement('span'); k.className = 'k';
+      k.appendChild(make()); k.appendChild(document.createTextNode(label)); lg.appendChild(k);
+    };
+    key('unmutated construct (K_D,app before)', () => {
+      const s = document.createElement('span'); s.className = 'sw';
+      s.style.borderRadius = '50%'; s.style.background = 'transparent';
+      s.style.border = '2px solid ' + P.muted; return s;
+    });
+    key('single mismatch tightens K_D,app', () => {
+      const s = document.createElement('span'); s.className = 'sw';
+      s.style.borderRadius = '50%'; s.style.background = P.s1; return s;
+    });
+    key('single mismatch loosens K_D,app', () => {
+      const s = document.createElement('span'); s.className = 'sw';
+      s.style.borderRadius = '50%'; s.style.background = P.s2; return s;
+    });
+    if (ref) key('shortest-tether unmutated construct of equal affinity (dashed rule)', () => {
+      const s = document.createElement('span'); s.className = 'ln';
+      s.style.background = 'transparent';
+      s.style.borderTop = '2px dashed ' + P.ink2; s.style.height = '0'; return s;
+    });
+    node.appendChild(lg);
+  });
+}
+
+const MM_COLS = [
+  {k:'name', h:'Variant (Wilson convention)', text:true},
+  {k:'ds_wt', h:'DS unmutated (5′→3′)', text:true},
+  {k:'ds', h:'DS mismatched (5′→3′)', text:true},
+  {k:'mismatch_pos', h:'Mismatch position (1-idx)', d:0},
+  {k:'window', h:'Window (0-idx)', text:true},
+  {k:'linker_len', h:'Linker (nt)', d:0},
+  {k:'tether_nt', h:'Tether (nt)', d:0, tip:'linker + DS; a mismatch never changes it'},
+  {k:'dg_switch', h:'ΔG_switch (kcal/mol)', d:2},
+  {k:'closed_frac', h:'Closed (fraction)', d:3},
+  {k:'kd_app_wt_nM', h:'K_D,app unmutated (nM)', d:1},
+  {k:'kd_app_nM', h:'K_D,app mismatched (nM)', d:1},
+  {k:'d_kd_nM', h:'ΔK_D,app (nM)', d:1, cell:(td, r) => {
+    const dot = document.createElement('span');
+    dot.className = 'dot'; dot.style.background = r.d_kd_nM < 0 ? P.s1 : P.s2;
+    td.appendChild(dot);
+    td.appendChild(document.createTextNode((r.d_kd_nM > 0 ? '+' : '') + fmt(r.d_kd_nM, 1)));
+    td.title = r.d_kd_nM < 0 ? 'tighter than the unmutated construct' : 'looser';
+  }},
+  {k:'engagement', h:'Engagement (fraction)', d:2},
+  {k:'selectivity', h:'Selectivity (kcal/mol)', d:2},
+  {k:'rand_covered', h:'Randomised nt covered', d:0},
+  {k:'tether_equiv', h:'Tether for same K_D w/o mismatch (nt)', d:0,
+   tip:'shortest tether at which an unmutated construct covering at least as many randomised ' +
+       'nt reaches this K_D,app'}
+];
+const mmSort = {k:'d_kd_nM', d:1, draw:() => renderMismatchTable()};
+function renderMismatchTable() {
+  guard('mm-table', node => {
+    if (!MM.length) return empty(node, MM_EMPTY);
+    sortableTable(node, MM_COLS, MM, mmSort);
+  });
+}
+
+/* =========================================================================
+   VIEW 10 - negative controls
+   Form: small-multiple histograms of engagement, one facet per arm, shared x. Faceting
+   carries arm identity, which frees colour to do the job that matters -- emphasis: the
+   designed arm in the accent hue, the three controls in the de-emphasis grey. A 4-series
+   overlay would have made the reader hunt for the gap that is the entire result.
+   ========================================================================= */
+const NC = DATA.controls || [];
+const NCSUM = DATA.controlSummary || [];
+const NC_EMPTY =
+  'negative_controls.csv not yet generated — run python aptamer/negative_controls.py';
+const ENG_MIN = (DATA.budget && DATA.budget.MIN_ENGAGEMENT) || 0.6;
+
+function renderControlDist() {
+  guard('nc-chart', node => {
+    if (!NC.length || !NCSUM.length) return empty(node, NC_EMPTY);
+    node.textContent = '';
+    const arms = NCSUM.map(s => s.arm);
+    const NB = 20, bw = 1 / NB;                      /* engagement is a fraction on [0,1] */
+    const counts = {};
+    arms.forEach(a => { counts[a] = new Array(NB).fill(0); });
+    NC.forEach(r => {
+      if (!counts[r.arm]) return;
+      /* `*NB` with an epsilon, not `/bw`: 0.6/0.05 is 11.999999999999998 in binary floating
+         point, which would drop every construct sitting exactly ON the engagement filter into
+         the bin to the LEFT of the threshold rule -- the one place a reader must not be
+         misled by a rounding artefact. */
+      const b = Math.min(NB - 1, Math.max(0, Math.floor(r.engagement * NB + 1e-9)));
+      counts[r.arm][b]++;
+    });
+    /* one shared count scale across facets: n is 80 in every arm, so a per-facet scale would
+       make the control spike and the designed spread look like the same quantity */
+    let top = 1;
+    arms.forEach(a => { top = Math.max(top, Math.max.apply(null, counts[a])); });
+
+    const fh = 62, gap = 14, m = {t:34, r:104, b:56, l:104};
+    const W = Math.max(560, Math.min(node.clientWidth || 880, 960));
+    const H = m.t + arms.length * (fh + gap) - gap + m.b;
+    const svg = el('svg', {width:'100%', viewBox:'0 0 ' + W + ' ' + H, role:'img',
+      'aria-label':'Distribution of engagement for the designed arm and the three ' +
+                   'composition-matched control arms'}, node);
+    const x = lin(0, 1, m.l, W - m.r);
+    const plotBottom = m.t + arms.length * (fh + gap) - gap;
+
+    /* the filter that does the discriminating, drawn across every facet */
+    el('line', {x1:x(ENG_MIN), x2:x(ENG_MIN), y1:m.t - 12, y2:plotBottom + 6, stroke:P.ink2,
+                'stroke-width':1, 'stroke-dasharray':'4 3'}, svg);
+    txt(svg, x(ENG_MIN) - 7, m.t - 16,
+        'engagement filter ≥ ' + ENG_MIN.toFixed(2) + ' — what excludes the trivial signal',
+        {'text-anchor':'end', 'font-size':10.5, fill:P.ink2});
+
+    arms.forEach((a, i) => {
+      const s = NCSUM[i];
+      const yTop = m.t + i * (fh + gap), base = yTop + fh;
+      const y = lin(0, top, base, yTop);
+      const designed = a === 'designed';
+      const col = designed ? P.s1 : P.muted;
+      el('line', {x1:m.l, x2:W - m.r, y1:base, y2:base, stroke:P.axis,
+                  'shape-rendering':'crispEdges'}, svg);
+      grid(svg, m.l, W - m.r, yTop, false);
+      txt(svg, m.l - 10, yTop + 9, String(top), {'text-anchor':'end', 'font-size':9.5,
+        fill:P.muted});
+      txt(svg, m.l - 10, base - 1, '0', {'text-anchor':'end', 'font-size':9.5, fill:P.muted});
+      const lab = txt(svg, m.l - 34, yTop + 20, a, {'text-anchor':'end', 'font-size':12,
+        fill:designed ? P.ink : P.ink2});
+      if (designed) lab.setAttribute('font-weight', '600');
+      txt(svg, m.l - 34, yTop + 34, 'n = ' + s.n, {'text-anchor':'end', 'font-size':10,
+        fill:P.muted});
+      txt(svg, W - m.r + 12, yTop + 20,
+          'pass ' + (s.passRate * 100).toFixed(0) + '%', {'font-size':11, fill:P.ink2});
+      txt(svg, W - m.r + 12, yTop + 34,
+          'median ' + s.engagement.toFixed(2), {'font-size':10, fill:P.muted});
+
+      for (let b = 0; b < NB; b++) {
+        const n = counts[a][b];
+        const gx = x(b * bw) + 1, gw = Math.max(2, x(bw) - x(0) - 2);
+        if (n > 0) {
+          const h = base - y(n);
+          el('rect', {x:gx, y:y(n), width:gw, height:h, rx:Math.min(3, gw / 2), fill:col}, svg);
+        }
+        const hit = el('rect', {x:gx - 1, y:yTop, width:gw + 2, height:fh,
+                                fill:'transparent'}, svg);
+        hit.addEventListener('pointermove', ev => showTip(ev, [
+          {value:a, color:col},
+          {value:(b * bw).toFixed(2) + ' – ' + ((b + 1) * bw).toFixed(2), name:'engagement'},
+          {value:n + ' of ' + s.n + ' constructs'},
+          {value:s.note}
+        ]));
+        hit.addEventListener('pointerleave', hideTip);
+      }
+      /* median tick, so the summary table's number is visible on the figure too */
+      el('line', {x1:x(s.engagement), x2:x(s.engagement), y1:yTop + 4, y2:base,
+                  stroke:P.ink, 'stroke-width':2}, svg);
+    });
+    for (let v = 0; v <= 1.0001; v += 0.1)
+      txt(svg, x(v), plotBottom + 18, v.toFixed(1),
+          {'text-anchor':'middle', 'font-size':10.5, fill:P.muted});
+    txt(svg, (m.l + W - m.r) / 2, H - 18,
+        'engagement — expected fraction of DS bases paired to the aptamer',
+        {'text-anchor':'middle', 'font-size':11.5, fill:P.ink2});
+    txt(svg, m.l - 10, m.t - 16, 'constructs', {'text-anchor':'end', 'font-size':10.5,
+      fill:P.ink2});
+
+    const lg = document.createElement('div'); lg.className = 'legend';
+    [[P.s1, 'designed displacement strands'],
+     [P.muted, 'composition-matched controls (scrambled · reversed · foreign)']]
+      .forEach(([c, label]) => {
+        const k = document.createElement('span'); k.className = 'k';
+        const s = document.createElement('span'); s.className = 'sw'; s.style.background = c;
+        k.appendChild(s); k.appendChild(document.createTextNode(label)); lg.appendChild(k);
+      });
+    const mk = document.createElement('span'); mk.className = 'k';
+    const ms = document.createElement('span'); ms.className = 'sw';
+    ms.style.width = '3px'; ms.style.background = P.ink;
+    mk.appendChild(ms); mk.appendChild(document.createTextNode('arm median'));
+    lg.appendChild(mk);
+    node.appendChild(lg);
+  });
+}
+
+function renderControlTable() {
+  guard('nc-table', node => {
+    if (!NCSUM.length) return empty(node, NC_EMPTY);
+    node.textContent = '';
+    const head = ['Arm', 'n', 'Median ΔG_switch (kcal/mol)', 'Median closed (fraction)',
+                  'Median K_D,app (nM)', 'Median engagement (fraction)',
+                  'Pass rate (all filters)', 'Reaching the designed median engagement'];
+    const t = document.createElement('table');
+    const thead = document.createElement('thead'), tr = document.createElement('tr');
+    head.forEach((h, i) => { const th = document.createElement('th');
+      th.textContent = h; if (i === 0) th.className = 'l'; tr.appendChild(th); });
+    thead.appendChild(tr); t.appendChild(thead);
+    const tb = document.createElement('tbody');
+    NCSUM.forEach(s => {
+      const row = document.createElement('tr');
+      const nameTd = document.createElement('td'); nameTd.className = 'l';
+      const dot = document.createElement('span');
+      dot.className = 'dot'; dot.style.background = s.arm === 'designed' ? P.s1 : P.muted;
+      nameTd.appendChild(dot);
+      nameTd.appendChild(document.createTextNode(s.arm));
+      if (s.arm === 'designed') {
+        const b = document.createElement('span'); b.className = 'badge warn';
+        b.style.marginLeft = '8px';
+        const ic = document.createElement('span'); ic.className = 'ic'; ic.textContent = '⚠';
+        b.appendChild(ic);
+        b.appendChild(document.createTextNode('pre-selected — see caveat 1'));
+        nameTd.appendChild(b);
+      }
+      nameTd.title = s.note;
+      row.appendChild(nameTd);
+      [[String(s.n)],
+       [s.dg_switch.toFixed(2), 'full range in this arm: ' + s.dgLo.toFixed(2) + ' to ' +
+        s.dgHi.toFixed(2) + ' kcal/mol'],
+       [s.closed_frac.toFixed(3)],
+       [fmt(s.kd_app_nM, 1)],
+       [s.engagement.toFixed(2), 'highest in this arm: ' + s.engMax.toFixed(2)],
+       [(s.passRate * 100).toFixed(0) + '%'],
+       [s.reachRef === null ? '—' : (s.reachRef * 100).toFixed(0) + '%']
+      ].forEach(([v, tip]) => { const td = document.createElement('td'); td.textContent = v;
+                                if (tip) td.title = tip; row.appendChild(td); });
+      tb.appendChild(row);
+    });
+    t.appendChild(tb); node.appendChild(t);
+    const cap = document.createElement('p');
+    cap.className = 'sub'; cap.style.marginTop = '8px';
+    const d = NCSUM.find(s => s.arm === 'designed');
+    const ctl = NCSUM.filter(s => s.arm !== 'designed');
+    if (d && ctl.length) {
+      const kdLo = Math.min.apply(null, ctl.map(s => s.kd_app_nM));
+      const kdHi = Math.max.apply(null, ctl.map(s => s.kd_app_nM));
+      cap.textContent =
+        'Read K_D,app here with care: the controls look BETTER on it (median ' +
+        fmt(kdLo, 0) + '–' + fmt(kdHi, 0) + ' nM against ' + fmt(d.kd_app_nM, 0) +
+        ' nM designed) precisely because they barely close, and a switch that never closes ' +
+        'never pays the switching penalty. K_D,app is not a discriminator on its own; ' +
+        'engagement and closed fraction are, and the pass rate is the joint test. ' +
+        'Control engagement never exceeds ' +
+        Math.max.apply(null, ctl.map(s => s.engMax)).toFixed(2) +
+        ' and no control reaches the designed median of ' + d.engagement.toFixed(2) + '.';
+      node.appendChild(cap);
+    }
+  });
+}
+
 /* ---------- boot + theme ---------- */
 function renderAll() {
   P = PAL[mode()];
   renderParents(); renderOccupancy();
   applyFilters();
+  /* views 9-10 read their own files and are deliberately NOT scoped by the switch filter row */
+  renderMismatchChart(); renderMismatchTable();
+  renderControlDist(); renderControlTable();
   if (window.__ssRedraw) window.__ssRedraw();
   if (window.__molRedraw) window.__molRedraw();
 }
@@ -1359,6 +2025,8 @@ function boot() {
   buildFilterRow();
   renderParents(); renderOccupancy();
   applyFilters();
+  renderMismatchChart(); renderMismatchTable();
+  renderControlDist(); renderControlTable();
   buildStructurePicker();
   /* fornac normally executes before this script, but poll briefly in case the CDN is slow;
      if it never arrives the arc diagram that is already on screen simply stays. */
@@ -1395,6 +2063,9 @@ def stat_tiles(data):
         return (f'<div class="stat"><div class="label">{label}</div>'
                 f'<div class="{cls}">{value}{u}</div></div>')
 
+    cp = data.get("constructParent")
+    mm = data.get("mismatches") or []
+    ctl = data.get("controlSummary") or []
     if switches:
         tiles.append(tile("Switch constructs passing the design filters", len(switches), "", hero=True))
         best = min(switches, key=lambda r: r["kd_app_nM"])
@@ -1403,6 +2074,20 @@ def stat_tiles(data):
         tiles.append(tile("Top-ranked DS", top["ds"], f"window {top['window']}"))
     else:
         tiles.append(tile("Switch constructs", "—", "switches.csv not yet generated"))
+    # The scaffold every construct sits on, stated up front: it is a truncation, not one of the
+    # full-length rows in view 1.
+    if cp:
+        unit = (f"{cp['length']} nt — truncation of the {cp['sourceLength']} nt {cp['source']}"
+                if cp["truncated"] else f"{cp['length']} nt")
+        tiles.append(tile("Parent every construct is built on", cp["name"], unit))
+    if mm:
+        b = min(mm, key=lambda r: r["kd_app_nM"])
+        tiles.append(tile("Tightest single-mismatch variant", f"{b['kd_app_nM']:.1f}",
+                          f"nM · {b['name']} at tether {b['tether_nt']} nt"))
+    if ctl:
+        rates = [f"{s['passRate']:.0%}" for s in ctl if s["arm"] != "designed"]
+        tiles.append(tile("Control-arm pass rate", " / ".join(rates) or "—",
+                          "scrambled / reversed / foreign"))
     if parents:
         b = min(parents, key=lambda r: r["KD_M"])
         tiles.append(tile("Tightest parent K_D", f"{b['kd_nM']:.1f}", f"nM · {b['name']}"))
@@ -1446,6 +2131,117 @@ def build_html(data):
         "IL-6 receptor structure is available here."
     )
 
+    # --- which parent? -------------------------------------------------------------------
+    # The constructs sit on a 45-nt truncation while view 1 lists 74-nt full-length sequences,
+    # so this banner is stated once at the top of the page and reinforced by the parent table's
+    # role column, the switch-library heading and the subtitles of views 9-10.
+    cp = data.get("constructParent")
+    n_mm = len(data["mismatches"] or [])
+    n_ctl = len(data["controls"] or [])
+    parent_line = ""
+    parent_banner = ""
+    if cp and cp["truncated"]:
+        kd = f" Its published K_D ({cp['kdNM']:.0f} nM) was measured on this truncated form." \
+            if cp.get("kdNM") else ""
+        parent_line = (f" · constructs built on <b>{cp['name']}</b> "
+                       f"({cp['length']} nt, truncated)")
+        parent_banner = (
+            f'<div class="callout"><b>Which parent: every construct below is built on '
+            f'{cp["name"]}, a {cp["length"]}-nt truncation — not on any sequence in the parent '
+            f'table.</b> {cp["name"]} is the first {cp["length"]} nt of the '
+            f'{cp["sourceLength"]}-nt <b>{cp["source"]}</b>; module B '
+            f'(positions {cp["length"] + 1}–{cp["sourceLength"]}) is removed, which keeps the '
+            f'finished construct in the length range real E-AB sensors work at.{kd} '
+            f'View 1 shows four full-length parents for reference; the switch library, the '
+            f'mismatch variants and the negative controls all use the '
+            f'{cp["length"]}-mer only.<br>'
+            f'<span class="seq" style="display:inline-block;margin-top:6px">'
+            f'{cp["sequence"]}</span> '
+            f'<span class="sub">← {cp["name"]}, {cp["length"]} nt, 5′→3′</span></div>')
+    elif cp:
+        parent_line = f" · constructs built on <b>{cp['name']}</b> ({cp['length']} nt)"
+    switch_head = (f' — every construct built on {cp["name"]}, {cp["length"]} nt'
+                   + (f' (truncation of {cp["source"]})' if cp and cp["truncated"] else "")
+                   ) if cp else ""
+
+    # --- view 9 headline ------------------------------------------------------------------
+    mm_call = ""
+    mm_parent = (f"{n_mm} variants" if n_mm else "none generated yet")
+    if n_mm and cp:
+        teth = sorted({r["tether_nt"] for r in data["mismatches"]})
+        mm_parent = (f"{n_mm} variants at tether {teth[0]}–{teth[-1]} nt, all on "
+                     f"{cp['name']} ({cp['length']} nt"
+                     + (f", truncation of {cp['source']})" if cp["truncated"] else ")"))
+    h = data.get("mismatchHeadline")
+    if h:
+        bc, lb, ma = h["bestCovered"], h["libBest"], h["matchAlt"]
+        equiv = (f"Matching that {bc['kd_app_nM']:.0f} nM by lengthening instead — with at "
+                 f"least the same {bc['rand_covered']} randomised nucleotides covered — means "
+                 f"a <b>{ma['tether_nt']}-nt tether</b> (DS <code>{ma['ds']}</code> at window "
+                 f"{ma['window']}, {ma['kd_app_nM']:.0f} nM), a "
+                 f"{ma['tether_nt'] - bc['tether_nt']}-nt jump"
+                 if ma else
+                 "No unmutated construct covering as much reaches that K_D,app at any tether")
+        lib_bit = (f"; the tightest such construct anywhere in the library "
+                   f"({lb['kd_app_nM']:.0f} nM, DS <code>{lb['ds']}</code> at window "
+                   f"{lb['window']}) pays a <b>{lb['tether_nt']}-nt tether</b>." if lb else ".")
+        mm_call = (
+            f'<div class="callout"><b>{h["improved"]} of {h["n"]} passing variants tighten '
+            f'K_D,app, and none of them lengthens the tether.</b> '
+            f'{h["n"]} single-mismatch variants of {h["nBase"]} short-tether constructs '
+            f'(tether {h["tetherLo"]}–{h["tetherHi"]} nt). Best overall: '
+            f'<code>{h["best"]["name"]}</code>, '
+            f'{h["best"]["kd_app_wt_nM"]:.0f} → <b>{h["best"]["kd_app_nM"]:.0f} nM</b> at '
+            f'tether {h["best"]["tether_nt"]} nt. Best of those covering '
+            f'{h["covered"]} randomised nt: <code>{bc["name"]}</code>, '
+            f'{bc["kd_app_wt_nM"]:.0f} → <b>{bc["kd_app_nM"]:.0f} nM</b> at tether '
+            f'{bc["tether_nt"]} nt. {equiv}{lib_bit} '
+            f'A longer tether is not free: it slows reclosure and the response, which is why '
+            f'the same affinity bought with a mismatch is worth more than the same affinity '
+            f'bought with linker.</div>')
+
+    # --- view 10 caveats ------------------------------------------------------------------
+    # Static HTML, above the figure, and not a footnote: this is validation evidence and both
+    # of these limit what it proves. They stay legible even if the chart JS fails.
+    nc_caveats = ""
+    summ = {s["arm"]: s for s in (data.get("controlSummary") or [])}
+    des = summ.get("designed")
+    ctls = [s for s in (data.get("controlSummary") or []) if s["arm"] != "designed"]
+    nc_lead = ("Designed displacement strands and their controls"
+               if not des else
+               f"{des['n']} designed displacement strands, sampled at a fixed stride across "
+               f"the whole ranked library so the sample is not just its top"
+               + (f" (of {n_sw} passing constructs)" if n_sw else ""))
+    if des and ctls:
+        rates = ", ".join(f"{s['arm']} {s['passRate']:.0%}" for s in ctls)
+        rate_lo = min(s["passRate"] for s in ctls)
+        rate_hi = max(s["passRate"] for s in ctls)
+        dg_lo = min(s["dg_switch"] for s in ctls)
+        dg_hi = max(s["dg_switch"] for s in ctls)
+        eng_max = max(s["engMax"] for s in ctls)
+        nc_caveats = (
+            f'<div class="caveat"><b>⚠ Caveat 1 — the designed arm\'s '
+            f'{des["passRate"]:.0%} pass rate is partly circular.</b> Those constructs were '
+            f'sampled from switches.csv, which is the set that already passed exactly these '
+            f'filters, so of course they pass again; that number measures nothing. The '
+            f'non-circular evidence is the rest of the figure: the <b>engagement gap</b> '
+            f'(designed median {des["engagement"]:.2f} against '
+            f'{min(s["engagement"] for s in ctls):.2f}–'
+            f'{max(s["engagement"] for s in ctls):.2f} for the controls, with no control '
+            f'exceeding {eng_max:.2f}) and the <b>control pass rates of '
+            f'{rate_lo:.0%}–{rate_hi:.0%}</b> ({rates}) — the controls were never '
+            f'pre-selected for anything, so their failure is a real result and the designed '
+            f'arm\'s success is not.</div>'
+            f'<div class="caveat"><b>⚠ Caveat 2 — the controls still show a negative '
+            f'ΔG_switch, {dg_lo:+.2f} to {dg_hi:+.2f} kcal/mol at the arm medians.</b> '
+            f'Appending any DNA lowers a construct\'s free energy, because the tail forms '
+            f'<i>some</i> structure whether or not it is complementary to the aptamer. That '
+            f'residual is exactly the trivial signal that raw ΔG_switch on its own would '
+            f'admit, and the <b>engagement filter (≥ {BUDGET.get("MIN_ENGAGEMENT", 0.6):.2f}, '
+            f'the dashed rule)</b> is what excludes it. Read the '
+            f'{rate_lo:.0%}–{rate_hi:.0%} control pass rate as this pipeline\'s '
+            f'false-positive floor, not as zero.</div>')
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1464,6 +2260,7 @@ def build_html(data):
   <div class="grow">
     <h1>Structure-switching IL-6 aptamers</h1>
     <p class="sub">{n_par} parent aptamers · {n_sw} ranked ISD switch constructs ·
+       {n_mm} single-mismatch variants · {n_ctl} negative-control rows{parent_line} ·
        generated by <code>aptamer/dashboard.py</code>. All data is inlined — works offline
        except the 3D panel.</p>
   </div>
@@ -1472,11 +2269,16 @@ def build_html(data):
 
 {note_html}
 
+{parent_banner}
+
 <div class="stats">{stat_tiles(data)}</div>
 
 {section("1 · Parent aptamers",
-         "Published Neomer candidates, reconstructed and folded. Reconstruction warnings flag a "
-         "genuinely uncertain nucleotide — those constructs must not be ordered blind.",
+         "Published Neomer candidates, reconstructed and folded — full-length sequences, none of "
+         "which is the construct scaffold. The role column says which row the constructs' "
+         "truncated parent comes from, and the struck-through nucleotides are the module the "
+         "truncation drops. Reconstruction warnings flag a genuinely uncertain nucleotide — "
+         "those constructs must not be ordered blind.",
          "parents-body")}
 
 <section class="card">
@@ -1489,10 +2291,10 @@ def build_html(data):
     <div id="occ-table" style="margin-top:8px"></div></details>
 </section>
 
-<h2 style="margin:28px 0 10px">Switch library</h2>
-<p class="sub" style="margin-bottom:12px">These filters scope everything below them — the
-table, the scatter, the heatmap, the coverage track and the switch structures all re-render
-against the same slice.</p>
+<h2 style="margin:28px 0 10px">Switch library{switch_head}</h2>
+<p class="sub" style="margin-bottom:12px">These filters scope views 3–7 — the table, the
+scatter, the heatmap, the coverage track and the switch structures all re-render against the
+same slice. Views 9 and 10 read their own files and are not filtered here.</p>
 <div class="filters" id="sw-filters"></div>
 
 {section("3 · Ranked switch constructs",
@@ -1543,6 +2345,38 @@ against the same slice.</p>
   <div class="viewer" id="mol-viewer"></div>
 </section>
 
+<section class="card">
+  <header><h2>9 · Mismatch refinement — affinity that costs no tether</h2>
+  <p class="sub">Single-mismatch variants of the shortest-tether constructs
+  ({mm_parent}). Each row is one variant: the open mark is the unmutated construct's K_D,app,
+  the filled mark is the same construct with one base changed in the displacement strand, and
+  the tether column does not move between them. DS length and linker length both trade
+  affinity against response speed; a mismatch weakens the duplex while leaving both lengths
+  alone, so it is the only knob that improves K_D,app without slowing the sensor. Values are
+  read from <code>mismatches.csv</code> as the pipeline produced them. Not scoped by the
+  filter row above.</p></header>
+  {mm_call}
+  <div id="mm-chart"></div>
+  <details class="tv" open><summary>Table view — every passing variant, sortable by any
+    column</summary>
+    <div id="mm-table" style="margin-top:8px"></div></details>
+</section>
+
+<section class="card">
+  <header><h2>10 · Negative controls — does the score detect complementarity or just DNA?</h2>
+  <p class="sub">{nc_lead}, each against three controls matched to it on
+  length and base composition: <b>scrambled</b> (same bases shuffled), <b>reversed</b> (same
+  bases, wrong pairing register) and <b>foreign</b> (the reverse complement of a window of a
+  <i>shuffled</i> aptamer — a genuine duplex-former that simply is not complementary to this
+  aptamer, and so the strict control). One facet per arm, shared axis; the designed arm is in
+  the accent hue and the controls in grey because the gap between them is the result.
+  Not scoped by the filter row above.</p></header>
+  {nc_caveats}
+  <div id="nc-chart"></div>
+  <details class="tv" open><summary>Table view — median score and pass rate per arm</summary>
+    <div id="nc-table" style="margin-top:8px"></div></details>
+</section>
+
 <footer class="foot">
 Regenerate with <code>python aptamer/dashboard.py</code>. Never hand-edit dashboard.html.
 Values are read as the pipeline produced them; only residence time (1/k_off) and fractional
@@ -1564,8 +2398,20 @@ def main():
     html = build_html(data)
     OUT.write_text(html, encoding="utf-8")
     kb = OUT.stat().st_size / 1024
+    cp = data.get("constructParent")
     print(f"parents.json   : {len(data['parents'] or [])} aptamers")
     print(f"switches.csv   : {len(data['switches'] or [])} constructs")
+    print(f"mismatches.csv : {len(data['mismatches'] or [])} variants"
+          if data["mismatches"] is not None else
+          "mismatches.csv : not present -> view 9 shows 'not yet generated'")
+    print(f"neg controls   : {len(data['controls'] or [])} rows, "
+          f"{len(data['controlSummary'])} arms"
+          if data["controls"] is not None else
+          "neg controls   : not present -> view 10 shows 'not yet generated'")
+    if cp:
+        print(f"construct parent: {cp['name']} ({cp['length']} nt"
+              + (f", truncation of {cp['source']} at {cp['sourceLength']} nt)"
+                 if cp["truncated"] else ")"))
     for s in data["structures"]:
         print(f"{s['name']:<15}: {s['atoms']} atoms ({s['kind']})")
     if not any(s["kind"] == "complex" for s in data["structures"]):

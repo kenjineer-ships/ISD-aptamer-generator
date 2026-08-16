@@ -1,0 +1,77 @@
+{
+  "key": "esmfold2__construct5__IL6",
+  "phase": "A",
+  "model": "esmfold2",
+  "dna_id": "construct5",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+  "dna_len": 95,
+  "dna_kind": "switch construct",
+  "dna_rank": 5,
+  "dna_meta": {
+    "rank": 5,
+    "ds": "AACCCTCTTG",
+    "window": "11-20",
+    "tether_nt": "50",
+    "kd_app_nM": "885.9",
+    "dg_switch": "-2.13",
+    "closed_frac": "0.97",
+    "selectivity": "8.34",
+    "structure": "...........(((((((((((((..........................................................)))))))))))))"
+  },
+  "target": "IL6",
+  "target_uniprot": "P05231",
+  "target_chain_id": "A",
+  "target_seq_len": 183,
+  "target_mature_range": [
+    30,
+    212
+  ],
+  "seed": 42,
+  "wall_seconds": 8.3,
+  "success": true,
+  "structure_file": "structures/esmfold2__construct5__IL6.cif",
+  "metrics": {
+    "primary_metric": "plddt",
+    "metric_type": "ESMFold2Metrics",
+    "plddt": 0.5757443308830261,
+    "ptm": 0.6233850121498108,
+    "avg_pae": 17.68330192565918,
+    "iptm": 0.21277204155921936
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 24,
+    "residues": {
+      "18": "L",
+      "23": "R",
+      "26": "K",
+      "27": "Q",
+      "30": "Y",
+      "40": "K",
+      "47": "N",
+      "74": "Q",
+      "112": "R",
+      "116": "M",
+      "117": "S",
+      "119": "K",
+      "120": "V",
+      "123": "Q",
+      "137": "T",
+      "140": "P",
+      "154": "N",
+      "155": "Q",
+      "156": "W",
+      "157": "L",
+      "170": "K",
+      "171": "E",
+      "174": "Q",
+      "178": "R"
+    }
+  },
+  "mean_per_residue_plddt": 0.5757,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}
