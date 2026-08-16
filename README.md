@@ -127,6 +127,8 @@ aptamer/
   mismatches.csv          output: passing single-mismatch variants (dashboard view 9)
   negative_controls.py    do composition-matched controls separate from designed DS?
   negative_controls.csv   output: designed + scrambled/reversed/foreign arms (view 10)
+  cofold/                 co-folded aptamer-IL-6 complexes; dashboard views 11-12 and the
+                          3D panel read it (read-only) -- see cofold/README.md
   benchmark.py            validate the model against published ISD measurements
   test_proto_language.py  smoke test: proto-language MCMC + ViennaRNA constraint on Windows
   dashboard.py            read the outputs above -> dashboard.html (all data inlined)
@@ -146,8 +148,10 @@ no build step — never hand-edit it, regenerate it. Missing pipeline outputs re
 "not yet generated" rather than failing. Two views prefer a CDN script: the 3D structure
 panel loads 3Dmol.js and genuinely needs internet, and the secondary-structure panel loads
 fornac for the real 2D layout but falls back to the built-in base-pair arc diagram (and says
-so in the panel) when fornac is unreachable. The tables, occupancy curve, scatter, heatmap
-and coverage track need no network at all.
+so in the panel) when fornac is unreachable. The tables, occupancy curve, scatter, heatmap,
+coverage track and the two co-fold views need no network at all. Only five of the 32 predicted
+complexes are inlined into the 3D panel (about 1.1 MB of the page); the rest stay on disk in
+`aptamer/cofold/structures/`.
 
 ### Switch design target
 

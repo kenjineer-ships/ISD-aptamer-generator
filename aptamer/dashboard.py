@@ -25,6 +25,12 @@ prefer a CDN script for something SVG-by-hand cannot do: 3Dmol.js for the 3D str
 built-in base-pair arc diagram when fornac is unreachable, so only view 8 actually needs
 internet; everything else works with no network at all.
 
+Views 11-12 read aptamer/cofold/ (written by run_cofold.py + summarize.py, and never written
+here -- that directory is another step's output). Both are negative results and are drawn as
+such: the four models do not agree on where the aptamer binds, and Boltz-2 ipTM ranks CNTF
+above IL-6 for the one chain with a measured K_D. Only five of the 32 .cif complexes are
+inlined into view 8; see COFOLD_STRUCTURES for which five and why.
+
 fornac ships its stylesheet inside the bundle and style-loader injects it into <head>
 unscoped, where its bare `svg {}` / `text {}` rules would resize every other chart. A
 scoped copy is inlined from vendor/fornac.css by scoped_fornac_css() and the injected
@@ -333,8 +339,175 @@ def construct_parent(parents, switches):
     }
 
 
-def read_structures():
-    """1ALU plus any co-folded complexes the structure step has dropped in."""
+# --- co-folded complexes: aptamer/cofold/, READ ONLY ---------------------------------------
+# That directory belongs to the co-folding step (run_cofold.py + summarize.py). Nothing here
+# writes to it and nothing here re-derives its science: ipTM, the 4.0 A contact-residue sets
+# and the Jaccard matrices are read exactly as summarize.py produced them.
+COFOLD_DIR = HERE / "cofold"
+# Lane order for view 11. boltz2 / esmfold2 / protenix broadly converge and opendde does not,
+# so the trio sits together and the outlier sits last: the ordering is part of the figure.
+COFOLD_MODELS = ("boltz2", "esmfold2", "protenix", "opendde")
+TRIO = ("boltz2", "esmfold2", "protenix")
+# The complexes inlined into view 8. Each .cif is 200-250 KB and 32 of them sit on disk, so
+# inlining the lot would add ~8 MB to the page. These five are the ones that carry an argument:
+# one DNA chain (parent45 -- the only chain with a measured K_D) placed by all four models, so
+# the disagreement is visible in 3D, plus the CNTF run that outscores the true target. The
+# other 27 stay in aptamer/cofold/structures/ and the panel says so.
+COFOLD_STRUCTURES = (
+    "boltz2__parent45__IL6", "esmfold2__parent45__IL6",
+    "protenix__parent45__IL6", "opendde__parent45__IL6",
+    "boltz2__parent45__CNTF",
+)
+TARGET_LABEL = {"IL6": "IL-6", "IL11": "IL-11", "LIF": "LIF", "OSM": "OSM", "CNTF": "CNTF"}
+
+
+def _f(v):
+    """float(v) or None -- dna_meta values arrive as strings straight out of the CSV."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def read_cofold():
+    """cofold_summary.json -> everything views 11 and 12 draw.
+
+    Two display aggregations are computed here and nothing else: how many of the four models
+    call each residue (a tally of the contact sets already in the file, the same shape as the
+    view-6 coverage count), and the boltz2/esmfold2/protenix intersection that the cofold
+    README names as the recurring patch. Every number that is a measurement -- ipTM, pTM,
+    pLDDT, the residue sets, the Jaccard matrices, the off-target margins -- is read.
+    """
+    p = COFOLD_DIR / "cofold_summary.json"
+    if not p.exists():
+        return None
+    try:
+        s = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        NOTES.append(f"cofold/cofold_summary.json unreadable ({exc.__class__.__name__}: {exc}); "
+                     "views 11-12 show 'not yet generated'")
+        return None
+    preds = [r for r in (s.get("predictions") or []) if r.get("success")]
+    if not preds:
+        NOTES.append("cofold_summary.json has no successful predictions; views 11-12 degrade")
+        return None
+    by_key = {r.get("key"): r for r in preds}
+    agree = s.get("cross_model_agreement") or {}
+    per = agree.get("per_dna") or {}
+
+    def ordered(models):
+        return ([m for m in COFOLD_MODELS if m in models]
+                + sorted(set(models) - set(COFOLD_MODELS)))
+
+    chains, trio_rec, target_len, offset = [], {}, None, None
+    # parent45 leads: it is the only chain with a measured K_D, so it is the one that can fail
+    # a control. The constructs follow in pipeline rank order.
+    for name in sorted(per, key=lambda n: (0 if n.startswith("parent") else 1, n)):
+        a = per[name] or {}
+        entries = []
+        for m in ordered(a.get("models") or []):
+            rec = by_key.get(f"{m}__{name}__IL6")
+            if not rec:
+                continue
+            ep = (rec.get("epitope") or {}).get("residues") or {}
+            met = rec.get("metrics") or {}
+            cptm = met.get("chains_ptm") or []
+            target_len = target_len or rec.get("target_seq_len")
+            rng = rec.get("target_mature_range") or []
+            if offset is None and len(rng) == 2:
+                offset = int(rng[0]) - 1  # mature residue 1 == UniProt residue rng[0]
+            entries.append({
+                "model": m,
+                "residues": sorted(int(k) for k in ep),
+                "aa": {str(int(k)): v for k, v in ep.items()},
+                "n": (a.get("n_contacts_per_model") or {}).get(m, len(ep)),
+                "patches": (a.get("contact_patches_per_model") or {}).get(m) or [],
+                "iptm": met.get("iptm"), "ptm": met.get("ptm"),
+                "dnaPtm": cptm[-1] if cptm else None,
+                "plddt": met.get("complex_plddt"), "conf": met.get("confidence_score"),
+            })
+        if not entries:
+            continue
+        counts = {}
+        for e in entries:
+            for r in e["residues"]:
+                counts[r] = counts.get(r, 0) + 1
+        trio_sets = [set(e["residues"]) for e in entries if e["model"] in TRIO]
+        trio = sorted(set.intersection(*trio_sets)) if len(trio_sets) == len(TRIO) else []
+        for r in trio:
+            trio_rec[r] = trio_rec.get(r, 0) + 1
+        rec0 = by_key.get(f"{entries[0]['model']}__{name}__IL6") or {}
+        meta = rec0.get("dna_meta") or {}
+        chains.append({
+            "dna": name,
+            "len": rec0.get("dna_len"),
+            "kind": rec0.get("dna_kind"),
+            "rank": rec0.get("dna_rank"),
+            "kdAppNM": _f(meta.get("kd_app_nM")),
+            "tether": _f(meta.get("tether_nt")),
+            "models": entries,
+            "counts": {str(k): v for k, v in sorted(counts.items())},
+            "trio": trio,
+            "jaccard": a.get("pairwise_jaccard") or {},
+            "jaccardTol": a.get("pairwise_jaccard_tolerant_pm2") or {},
+            "meanJ": a.get("mean_pairwise_jaccard"),
+            "meanJTol": a.get("mean_pairwise_jaccard_tolerant_pm2"),
+            "consensus": [int(r) for r in (a.get("consensus_residues_all_models") or [])],
+            "nConsensus": a.get("n_consensus"),
+            "nUnion": a.get("n_union"),
+        })
+    if not chains:
+        return None
+
+    # --- Phase B: the off-target panels, one per DNA chain --------------------------------
+    off = []
+    for key, o in (s.get("off_target_specificity") or {}).items():
+        dna, model = o.get("dna_id"), o.get("model")
+        on = o.get("on_target_IL6")
+        onrec = by_key.get(f"{model}__{dna}__IL6") or {}
+        rows = [{
+            "target": "IL6", "label": TARGET_LABEL["IL6"],
+            "uniprot": onrec.get("target_uniprot") or "P05231",
+            "iptm": on, "margin": 0.0, "onTarget": True,
+            "nContacts": (onrec.get("epitope") or {}).get("n_contact_residues"),
+        }]
+        for t, v in sorted((o.get("off_targets") or {}).items()):
+            rows.append({
+                "target": t, "label": TARGET_LABEL.get(t, t), "uniprot": v.get("uniprot"),
+                "iptm": v.get("value"), "margin": v.get("margin_vs_IL6"), "onTarget": False,
+                "nContacts": v.get("n_contact_residues"),
+            })
+        rows.sort(key=lambda r: -(r["iptm"] or 0))
+        off.append({
+            "key": key, "dna": dna, "model": model, "metric": o.get("metric") or "iptm",
+            "onTarget": on, "rows": rows, "minMargin": o.get("min_margin"),
+            "dnaLen": onrec.get("dna_len"), "dnaKind": onrec.get("dna_kind"),
+            # a name here is the metric failing its control, not a specificity result
+            "beats": [r["label"] for r in rows
+                      if not r["onTarget"] and (r["iptm"] or 0) > (on or 0)],
+        })
+    off.sort(key=lambda d: (0 if str(d["dna"]).startswith("parent") else 1, d["dna"]))
+
+    sdir = COFOLD_DIR / "structures"
+    return {
+        "counts": s.get("counts") or {},
+        "interpretation": s.get("interpretation"),
+        "contactNote": agree.get("note"),
+        "chains": chains,
+        "models": ordered({e["model"] for c in chains for e in c["models"]}),
+        "trioModels": [m for m in TRIO],
+        "vsOthers": agree.get("mean_tolerant_jaccard_vs_all_others") or {},
+        "allModelRecurrence": agree.get("consensus_residue_recurrence_all_models") or {},
+        "trioRecurrence": sorted(trio_rec.items(), key=lambda kv: (-kv[1], kv[0])),
+        "targetLen": target_len,
+        "uniprotOffset": 29 if offset is None else offset,
+        "offTarget": off,
+        "nOnDisk": len(list(sdir.glob("*.cif"))) if sdir.is_dir() else 0,
+    }
+
+
+def read_structures(cofold=None):
+    """1ALU, anything the structure step dropped in aptamer/, plus the five inlined co-folds."""
     out = []
     for p in sorted(HERE.glob("*.pdb")) + sorted(HERE.glob("*.cif")):
         try:
@@ -350,7 +523,63 @@ def read_structures():
             "label": "human IL-6 crystal structure, 1.9 A (PDB 1ALU)" if is_ref else p.stem,
             "text": text,
             "atoms": sum(1 for line in text.splitlines() if line.startswith(("ATOM", "HETATM"))),
+            "chainA": None, "chainB": None,
         })
+    return out + read_cofold_structures(cofold)
+
+
+def read_cofold_structures(cofold=None):
+    """The five .cif complexes from COFOLD_STRUCTURES, labelled from their own run records.
+
+    Chain A is the protein and chain B the DNA in every file the co-folding step writes, which
+    is what lets view 8 colour them apart. A missing file is skipped, not fatal.
+    """
+    d = COFOLD_DIR / "structures"
+    if not d.is_dir():
+        return []
+    meta, dna_len = {}, {}
+    for c in (cofold or {}).get("chains", []):
+        dna_len[c["dna"]] = c.get("len")
+        for e in c["models"]:
+            meta[f"{e['model']}__{c['dna']}__IL6"] = (c, e["iptm"])
+    # the off-target runs use the same DNA chains, so their length is known even though the
+    # per-chain agreement record only covers the on-target runs
+    for panel in (cofold or {}).get("offTarget", []):
+        for r in panel["rows"]:
+            meta.setdefault(f"{panel['model']}__{panel['dna']}__{r['target']}",
+                            ({"len": dna_len.get(panel["dna"])}, r["iptm"]))
+    out, missing = [], []
+    for stem in COFOLD_STRUCTURES:
+        p = d / (stem + ".cif")
+        if not p.exists():
+            missing.append(stem)
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            NOTES.append(f"cofold/structures/{p.name} unreadable: {exc}")
+            continue
+        try:
+            model, dna, target = stem.split("__")
+        except ValueError:
+            model, dna, target = stem, "?", "?"
+        chain, iptm = meta.get(stem, (None, None))
+        nt = f", {chain['len']} nt" if chain and chain.get("len") else ""
+        tag = " — ipTM %.3f" % iptm if isinstance(iptm, (int, float)) else ""
+        out.append({
+            "name": p.name,
+            "format": "cif",
+            "kind": "complex",
+            "label": (f"{model} · {dna}{nt} vs {TARGET_LABEL.get(target, target)}"
+                      f"{tag}{' (off-target control)' if target != 'IL6' else ''}"),
+            "text": text,
+            "atoms": sum(1 for line in text.splitlines() if line.startswith(("ATOM", "HETATM"))),
+            "chainA": TARGET_LABEL.get(target, target) + " (protein)",
+            "chainB": f"{dna} DNA{nt}",
+        })
+    if missing:
+        NOTES.append("cofold/structures: missing " + ", ".join(m + ".cif" for m in missing)
+                     + " -- view 8 lists the ones that are there")
     return out
 
 
@@ -403,12 +632,59 @@ def design_window(switches):
     return min(dgs), max(dgs), cap
 
 
+def cofold_staleness(cofold, switches, mismatches, cparent):
+    """How far the pipeline has moved since the co-folds were run.
+
+    The five constructs in aptamer/cofold/ were snapshotted before the ensemble-ΔG and
+    K_closed corrections and before mismatch tuning existed, so their lengths and K_D,app are
+    not the shortlist's any more. This puts the two side by side from live files rather than
+    from a number typed into the caveat -- if the pipeline moves again, the caveat moves with
+    it. None when there is nothing to compare against.
+    """
+    if not cofold:
+        return None
+    used = [c for c in cofold["chains"] if c.get("kdAppNM")]
+    if not used:
+        return None
+    top = min(used, key=lambda c: c.get("rank") or 99)
+    # a mismatch variant carries no `construct` column, so its length is the parent plus the
+    # tether the row records -- the same arithmetic switch_library does when it builds one
+    base = (cparent or {}).get("length")
+    cand = [{"kd": r["kd_app_nM"], "len": len(r.get("construct") or "") or None,
+             "what": f"switch construct DS {r['ds']} at window {r['window']}"}
+            for r in switches or []]
+    for r in mismatches or []:
+        teth = r.get("tether_nt")
+        cand.append({"kd": r["kd_app_nM"],
+                     "len": (base + teth) if (base and isinstance(teth, int)) else None,
+                     "what": f"single-mismatch variant {r.get('name', '')}".strip()})
+    now = min(cand, key=lambda c: c["kd"]) if cand else None
+    # The length half of the comparison: the shortest thing the pipeline now has that already
+    # beats every co-folded chain on K_D,app. Affinity alone understates the move -- the
+    # constructs got much shorter as well as tighter.
+    ceiling = min(c["kdAppNM"] for c in used)
+    beat = [c for c in cand if c["kd"] < ceiling and c["len"]]
+    short = min(beat, key=lambda c: (c["len"], c["kd"])) if beat else None
+    return {
+        "short": short,
+        "then": {"dna": top["dna"], "len": top.get("len"), "kd": top.get("kdAppNM"),
+                 "rank": top.get("rank")},
+        "thenKdLo": min(c["kdAppNM"] for c in used),
+        "thenKdHi": max(c["kdAppNM"] for c in used),
+        "thenLenLo": min(c["len"] for c in used if c.get("len")),
+        "thenLenHi": max(c["len"] for c in used if c.get("len")),
+        "nUsed": len(used),
+        "now": now,
+    }
+
+
 def build_data():
     parents = read_parents()
     switches = read_switches()
     mismatches = read_mismatches()
     controls = read_controls()
-    structures = read_structures()
+    cofold = read_cofold()
+    structures = read_structures(cofold)
     lo, hi, cap = design_window(switches)
     cparent = construct_parent(parents, switches)
     return {
@@ -420,6 +696,10 @@ def build_data():
         "controls": controls,
         "controlSummary": control_summary(controls),  # each row carries its own arm note
         "structures": structures,
+        "cofold": cofold,
+        # what a construct in the co-fold set cost then vs what the pipeline reaches now --
+        # views 11-12 predate the ensemble-dG / K_closed corrections and the mismatch tuning
+        "cofoldStale": cofold_staleness(cofold, switches, mismatches, cparent),
         "occupancy": occupancy_series(parents),
         "occupancyTable": occupancy_table(parents),
         "wound": WOUND,
@@ -1642,11 +1922,33 @@ function render3D() {
     const v = $3Dmol.createViewer(host, {backgroundColor: P.surface});
     v.addModel(s.text, s.format);
     v.setStyle({}, {cartoon:{color:P.s1, opacity:0.95}});
+    /* co-folds always write the protein as chain A and the DNA as chain B, so colour by
+       chain first; the residue-name rule below then catches any file that does not. */
+    if (s.chainA) v.setStyle({chain:'A'}, {cartoon:{color:P.s1, opacity:0.95}});
+    if (s.chainB) v.setStyle({chain:'B'}, {stick:{color:P.s2, radius:0.22},
+                                           cartoon:{color:P.s2, style:'trace'}});
     v.setStyle({resn:['DA','DC','DG','DT','A','C','G','U','T']},
                {stick:{colorscheme:'default', color:P.s2, radius:0.22},
                 cartoon:{color:P.s2, style:'trace'}});
     v.setStyle({hetflag:true}, {stick:{color:P.s4, radius:0.18}});
     v.zoomTo(); v.render();
+    /* say which colour is which for the structure actually on screen */
+    const cap = document.getElementById('mol-key');
+    if (cap) {
+      cap.textContent = '';
+      const keys = s.chainA
+        ? [[P.s1, 'chain A — ' + s.chainA], [P.s2, 'chain B — ' + s.chainB]]
+        : [[P.s1, 'protein backbone'], [P.s2, 'nucleic acid, if any'],
+           [P.s4, 'ligands / heteroatoms']];
+      keys.forEach(([c, label]) => {
+        const k = document.createElement('span'); k.className = 'k';
+        const sw = document.createElement('span'); sw.className = 'sw'; sw.style.background = c;
+        k.appendChild(sw); k.appendChild(document.createTextNode(label)); cap.appendChild(k);
+      });
+      const k = document.createElement('span'); k.className = 'k';
+      k.appendChild(document.createTextNode(s.atoms.toLocaleString() + ' atoms'));
+      cap.appendChild(k);
+    }
     window.__molRedraw = draw;
   }
   sel.addEventListener('change', draw);
@@ -2009,6 +2311,496 @@ function renderControlTable() {
   });
 }
 
+/* =========================================================================
+   VIEW 11 - cross-model agreement: where each model puts the DNA on IL-6
+
+   Form: a contact track. The question is "do four models cover the same positions on one
+   183-residue axis", which is positional-set overlap -- a bar chart of contact counts would
+   answer a different question (how many contacts) and hide the entire finding. One lane per
+   model, marks where that model places a contact, plus an agreement strip counting how many
+   models call each residue. Four models = categorical slots 1-4 in the documented fixed
+   order, every lane direct-labelled, so identity never rests on colour alone. Lane order is
+   deliberate: the three broadly-converging models sit together and opendde sits last.
+   The 4x4 Jaccard matrices are the companion, on one sequential ramp with printed values.
+   ========================================================================= */
+const CF = DATA.cofold;
+const CF_EMPTY = 'aptamer/cofold/cofold_summary.json not yet generated — run ' +
+                 'python aptamer/cofold/run_cofold.py, then summarize.py';
+const CF_RAMP_MAX = 0.6;   /* fixed Jaccard colour domain so chains stay comparable */
+let cfChain = 0;
+
+function cfChainNow() { return (CF && CF.chains[cfChain]) || (CF && CF.chains[0]) || null; }
+function cfColor(model) {
+  const i = (CF && CF.models ? CF.models : []).indexOf(model);
+  return SERIES(P)[(i < 0 ? 0 : i) % 4];
+}
+function cfPair(map, a, b) {
+  const v = map[a + '|' + b];
+  return v === undefined ? map[b + '|' + a] : v;
+}
+const cfNum = (v, d) => (v === null || v === undefined) ? '—' : v.toFixed(d === undefined ? 3 : d);
+
+function renderCofoldTrack() {
+  guard('cf-track', node => {
+    if (!CF) return empty(node, CF_EMPTY);
+    const ch = cfChainNow();
+    if (!ch) return empty(node, CF_EMPTY);
+    const n = CF.targetLen || 183, off = CF.uniprotOffset;
+    const trio = new Set(ch.trio || []), all4 = new Set(ch.consensus || []);
+    const counts = ch.counts || {};
+    node.textContent = '';
+
+    const cellW = 6, laneH = 19, laneGap = 5, stripH = 34;
+    const m = {t:22, r:22, b:104, l:124};
+    const lanes = ch.models.length;
+    const stripY = m.t + lanes * (laneH + laneGap) + 10;
+    const axisY = stripY + stripH + 4;
+    const W = m.l + n * cellW + m.r, H = axisY + m.b;
+    const svg = el('svg', {width:W, height:H, viewBox:'0 0 ' + W + ' ' + H, role:'img',
+      'aria-label':'Contact residues on IL-6 placed by each model for DNA chain ' + ch.dna},
+      svg0(node));
+    /* 183 residues need the room: scroll the track rather than shrink the cells to nothing */
+    svg.style.minWidth = W + 'px';
+
+    /* painted in three passes so nothing hides anything: empty lane beds, then the wash
+       columns that mark a three-model call, then the contact marks on top */
+    ch.models.forEach((e, i) => {
+      el('rect', {x:m.l, y:m.t + i * (laneH + laneGap), width:n * cellW, height:laneH,
+                  fill:P.grid, opacity:0.4, rx:4}, svg);
+    });
+    el('rect', {x:m.l, y:stripY, width:n * cellW, height:stripH, fill:P.grid, opacity:0.4,
+                rx:4}, svg);
+    (ch.trio || []).forEach(r => {
+      el('rect', {x:m.l + (r - 1) * cellW - 0.6, y:m.t - 4, width:cellW + 1.2,
+                  height:(axisY - m.t) + 4, fill:P.ink, opacity:0.12, rx:2}, svg);
+    });
+
+    ch.models.forEach((e, i) => {
+      const y = m.t + i * (laneH + laneGap), c = cfColor(e.model);
+      el('rect', {x:4, y:y + laneH / 2 - 5, width:10, height:10, rx:3, fill:c}, svg);
+      txt(svg, 20, y + laneH / 2 + 4, e.model, {'font-size':11.5, fill:P.ink});
+      txt(svg, m.l - 8, y + laneH / 2 + 4,
+          e.n + (e.iptm === null || e.iptm === undefined ? '' : ' · ' + e.iptm.toFixed(2)),
+          {'text-anchor':'end', 'font-size':10.5, fill:P.muted});
+      e.residues.forEach(r => {
+        el('rect', {x:m.l + (r - 1) * cellW + 0.6, y:y + 2, width:cellW - 1.2,
+                    height:laneH - 4, rx:2, fill:c}, svg);
+      });
+    });
+    txt(svg, 4, m.t - 8, 'model', {'font-size':10.5, fill:P.muted});
+    txt(svg, m.l - 8, m.t - 8, 'contacts · ipTM', {'text-anchor':'end', 'font-size':10.5,
+                                                   fill:P.muted});
+
+    /* agreement strip: how many of the four call this residue (sequential, one hue) */
+    const maxM = ch.models.length;
+    for (let r = 1; r <= n; r++) {
+      const k = counts[String(r)] || 0;
+      if (!k) continue;
+      const h = Math.max(4, (stripH - 6) * k / maxM);
+      el('rect', {x:m.l + (r - 1) * cellW + 0.6, y:stripY + stripH - 3 - h, width:cellW - 1.2,
+                  height:h, rx:2, fill:seqColor(0.35 + 0.65 * k / maxM)}, svg);
+    }
+    txt(svg, m.l - 8, stripY + stripH / 2 + 4, 'models agreeing',
+        {'text-anchor':'end', 'font-size':10.5, fill:P.ink2});
+    txt(svg, m.l - 8, stripY + stripH / 2 + 17, '0–' + maxM,
+        {'text-anchor':'end', 'font-size':10, fill:P.muted});
+
+    /* axis: mature-chain numbering, with the UniProt row underneath it. The two numbering
+       schemes differ by the signal peptide and misreading them is a real hazard, so both are
+       on the axis rather than in a caption. */
+    el('line', {x1:m.l, x2:m.l + n * cellW, y1:axisY, y2:axisY, stroke:P.axis,
+                'stroke-width':1, 'shape-rendering':'crispEdges'}, svg);
+    for (let r = 10; r <= n; r += 10) {
+      const x = m.l + (r - 0.5) * cellW;
+      el('line', {x1:x, x2:x, y1:axisY, y2:axisY + 4, stroke:P.axis, 'stroke-width':1}, svg);
+      txt(svg, x, axisY + 15, String(r), {'text-anchor':'middle', 'font-size':10, fill:P.ink2});
+      if (r % 20 === 0)
+        txt(svg, x, axisY + 28, String(r + off), {'text-anchor':'middle', 'font-size':9.5,
+                                                  fill:P.muted});
+    }
+    txt(svg, m.l - 8, axisY + 15, 'mature', {'text-anchor':'end', 'font-size':10, fill:P.ink2});
+    txt(svg, m.l - 8, axisY + 28, 'UniProt', {'text-anchor':'end', 'font-size':9.5,
+                                              fill:P.muted});
+
+    /* selective direct labels: the residues all three converging models call */
+    (ch.trio || []).forEach(r => {
+      const x = m.l + (r - 0.5) * cellW;
+      txt(svg, x, axisY + 42, '▲', {'text-anchor':'middle', 'font-size':8, fill:P.ink});
+      const t = txt(svg, 0, 0, String(r), {'font-size':10, fill:P.ink, 'text-anchor':'end'});
+      t.setAttribute('transform', 'translate(' + (x + 3.5) + ',' + (axisY + 48) + ') rotate(-90)');
+    });
+
+    txt(svg, m.l + n * cellW / 2, H - 26,
+        'IL-6 mature chain, residue 1–' + n + ' (1-based within the mature chain)',
+        {'text-anchor':'middle', 'font-size':11.5, fill:P.ink2});
+    txt(svg, m.l + n * cellW / 2, H - 11,
+        'UniProt P05231 numbering = mature residue + ' + off +
+        ' (grey row) — the signal peptide 1–' + off + ' is not in these structures',
+        {'text-anchor':'middle', 'font-size':10.5, fill:P.muted});
+
+    /* One continuous overlay rather than 183 six-pixel hit columns: at this density a
+       per-residue target would be a pinpoint. The pointer picks the nearest residue and a
+       crosshair says which one, so there is no dead zone between marks. */
+    const cross = el('rect', {x:m.l, y:m.t - 4, width:cellW, height:(axisY - m.t) + 4,
+                              fill:P.ink, opacity:0, rx:2}, svg);
+    const over = el('rect', {x:m.l, y:m.t - 4, width:n * cellW, height:(axisY - m.t) + 4,
+                             fill:'transparent'}, svg);
+    over.addEventListener('pointermove', ev => {
+      const box = svg.getBoundingClientRect();
+      const sx = (ev.clientX - box.left) * (W / (box.width || W));
+      const r = Math.max(1, Math.min(n, Math.floor((sx - m.l) / cellW) + 1));
+      cross.setAttribute('x', m.l + (r - 1) * cellW);
+      cross.setAttribute('opacity', 0.12);
+      let aa = '';
+      ch.models.forEach(e => { if (e.aa[String(r)]) aa = e.aa[String(r)]; });
+      const rows = [{value:'residue ' + r + (aa ? ' ' + aa : ''),
+                     name:'UniProt P05231 ' + (r + off)}];
+      ch.models.forEach(e => {
+        if (e.residues.indexOf(r) >= 0)
+          rows.push({color:cfColor(e.model), value:e.model, name:'contact < 4.0 Å'});
+      });
+      const k = counts[String(r)] || 0;
+      rows.push({value:k + ' of ' + maxM + ' models',
+                 name:all4.has(r) ? '— every model agrees'
+                      : trio.has(r) ? '— ' + CF.trioModels.join(' + ') + ' agree' : ''});
+      showTip(ev, rows);
+    });
+    over.addEventListener('pointerleave', () => {
+      cross.setAttribute('opacity', 0); hideTip();
+    });
+
+    const lg = document.createElement('div'); lg.className = 'legend';
+    const key = (label, style) => {
+      const k = document.createElement('span'); k.className = 'k';
+      const s = document.createElement('span'); s.className = 'sw';
+      Object.assign(s.style, style); k.appendChild(s);
+      k.appendChild(document.createTextNode(label)); lg.appendChild(k);
+    };
+    ch.models.forEach(e => key(e.model + ' contacts', {background:cfColor(e.model)}));
+    key('residue all three of ' + CF.trioModels.join(' + ') + ' call (▲ on the axis)',
+        {background:'rgba(128,128,128,0.28)'});
+    key('agreement strip: taller and darker = more models', {background:seqColor(1)});
+    node.appendChild(lg);
+
+    const cap = document.createElement('p');
+    cap.className = 'sub'; cap.style.marginTop = '8px';
+    cap.textContent =
+      ch.dna + ': mean pairwise Jaccard ' + cfNum(ch.meanJ) + ' (' + cfNum(ch.meanJTol) +
+      ' allowing ±2 residues) · ' + ch.nConsensus + ' of ' + ch.nUnion +
+      ' union residues are called by all ' + maxM + ' models' +
+      ((ch.trio || []).length
+        ? ' · ' + CF.trioModels.join(' + ') + ' share ' + ch.trio.length + ': ' +
+          ch.trio.join(', ')
+        : ' · the three converging models share none on this chain') +
+      '. ' + (CF.contactNote || '');
+    node.appendChild(cap);
+  });
+}
+
+/* the pairwise matrices: sequential ramp, values printed in every cell (which is also the
+   contrast relief), exact on the left and ±2-tolerant on the right as small multiples */
+function renderCofoldMatrix() {
+  guard('cf-matrix', node => {
+    if (!CF) return empty(node, CF_EMPTY);
+    const ch = cfChainNow();
+    if (!ch) return empty(node, CF_EMPTY);
+    node.textContent = '';
+    const ms = ch.models.map(e => e.model);
+    const cell = 58, lab = 74, gapX = 46;
+    const panelW = lab + ms.length * cell;
+    const m = {t:44, l:2, b:26};
+    const W = m.l + panelW * 2 + gapX, H = m.t + ms.length * cell + m.b;
+    const svg = el('svg', {width:W, height:H, viewBox:'0 0 ' + W + ' ' + H, role:'img',
+      'aria-label':'Pairwise Jaccard overlap of contact residues between models'}, svg0(node));
+    svg.style.minWidth = W + 'px';
+    [['exact residue overlap', ch.jaccard, 0], ['tolerant ±2 residues', ch.jaccardTol, 1]]
+      .forEach(([title, map, p]) => {
+        const x0 = m.l + p * (panelW + gapX);
+        txt(svg, x0, 14, title, {'font-size':12, fill:P.ink, 'font-weight':600});
+        ms.forEach((b, j) => txt(svg, x0 + lab + j * cell + cell / 2, m.t - 8, b,
+                                 {'text-anchor':'middle', 'font-size':10.5, fill:P.ink2}));
+        ms.forEach((a, i) => {
+          txt(svg, x0 + lab - 8, m.t + i * cell + cell / 2 + 4, a,
+              {'text-anchor':'end', 'font-size':10.5, fill:P.ink2});
+          ms.forEach((b, j) => {
+            const x = x0 + lab + j * cell, y = m.t + i * cell;
+            if (i === j) {
+              el('rect', {x:x + 1, y:y + 1, width:cell - 2, height:cell - 2, rx:5,
+                          fill:P.grid, opacity:0.5}, svg);
+              txt(svg, x + cell / 2, y + cell / 2 + 4, '—',
+                  {'text-anchor':'middle', 'font-size':12, fill:P.muted});
+              return;
+            }
+            const v = cfPair(map, a, b);
+            const fill = (v === undefined || v === null) ? P.grid
+                       : seqColor(Math.min(1, v / CF_RAMP_MAX));
+            el('rect', {x:x + 1, y:y + 1, width:cell - 2, height:cell - 2, rx:5, fill:fill}, svg);
+            const t = txt(svg, x + cell / 2, y + cell / 2 + 4,
+                          v === undefined || v === null ? '—' : v.toFixed(3),
+                          {'text-anchor':'middle', 'font-size':11.5,
+                           fill:(v === undefined || v === null) ? P.muted : inkOn(fill)});
+            if (v === 0) t.setAttribute('font-weight', '700');
+            const hit = el('rect', {x:x, y:y, width:cell, height:cell, fill:'transparent'}, svg);
+            hit.addEventListener('pointermove', ev => showTip(ev, [
+              {value:a + ' vs ' + b, name:title},
+              {value:v === undefined || v === null ? '—' : v.toFixed(3),
+               name:'Jaccard overlap of contact residues' +
+                    (v === 0 ? ' — completely disjoint binding sites' : '')}
+            ]));
+            hit.addEventListener('pointerleave', hideTip);
+          });
+        });
+      });
+    const bar = document.createElement('div');
+    bar.className = 'rampbar'; bar.style.marginTop = '8px';
+    const b = document.createElement('span'); b.className = 'bar';
+    b.style.background = 'linear-gradient(90deg,' + seqColor(0) + ',' + seqColor(1) + ')';
+    bar.appendChild(document.createTextNode('Jaccard 0'));
+    bar.appendChild(b);
+    bar.appendChild(document.createTextNode(CF_RAMP_MAX.toFixed(1) +
+      ' — same ramp on every chain. 1.000 would be identical contact sets; 0.000 is no shared residue at all.'));
+    node.appendChild(bar);
+  });
+}
+
+function renderCofoldTable() {
+  guard('cf-table', node => {
+    if (!CF) return empty(node, CF_EMPTY);
+    const ch = cfChainNow();
+    if (!ch) return empty(node, CF_EMPTY);
+    node.textContent = '';
+    const t = document.createElement('table');
+    const head = ['Model', 'ipTM (interface)', 'pTM (complex)', 'DNA-chain pTM',
+                  'Complex pLDDT', 'Contact residues (< 4.0 Å)',
+                  'Mean tolerant Jaccard vs all others (all chains)',
+                  'Contact patches, mature-chain numbering'];
+    const thead = document.createElement('thead'), htr = document.createElement('tr');
+    head.forEach((h, i) => { const th = document.createElement('th');
+      th.textContent = h; if (i === 0 || i === head.length - 1) th.className = 'l';
+      htr.appendChild(th); });
+    thead.appendChild(htr); t.appendChild(thead);
+    const tb = document.createElement('tbody');
+    ch.models.forEach(e => {
+      const tr = document.createElement('tr');
+      const td0 = document.createElement('td'); td0.className = 'l';
+      const dot = document.createElement('span');
+      dot.className = 'dot'; dot.style.background = cfColor(e.model);
+      td0.appendChild(dot); td0.appendChild(document.createTextNode(e.model));
+      tr.appendChild(td0);
+      [cfNum(e.iptm), cfNum(e.ptm), cfNum(e.dnaPtm), cfNum(e.plddt), String(e.n),
+       cfNum((CF.vsOthers || {})[e.model])].forEach(v => {
+        const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+      const tdp = document.createElement('td');
+      tdp.className = 'l mono'; tdp.textContent = (e.patches || []).join(', ') || '—';
+      tdp.style.whiteSpace = 'normal';
+      tr.appendChild(tdp);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); node.appendChild(t);
+    const cap = document.createElement('p');
+    cap.className = 'sub'; cap.style.marginTop = '8px';
+    const rec = (CF.trioRecurrence || []).filter(r => r[1] > 1);
+    cap.textContent =
+      'ipTM, pTM and pLDDT are each model’s own confidence and are not comparable across ' +
+      'models. The last-but-one column is the only cross-model number here: how much each ' +
+      'model’s contact set overlaps the other three, averaged over all ' +
+      CF.chains.length + ' DNA chains.' +
+      (rec.length ? ' Residues that ' + CF.trioModels.join(' + ') + ' all call on more than ' +
+        'one chain: ' + rec.map(r => r[0] + ' (' + r[1] + '/' + CF.chains.length + ' chains)')
+        .join(', ') + '. That is a hypothesis to test, not a result.' : '');
+    node.appendChild(cap);
+  });
+}
+
+/* =========================================================================
+   VIEW 12 - off-target panels: the metric failing its own control
+
+   Form: emphasis, not categorical. Five targets per panel with one of them the right answer,
+   so the on-target bar carries the accent hue, the off-targets are grey, and the dashed rule
+   at the on-target value is the thing to read against -- any bar past it is the metric
+   ranking a known non-target above the known target. A bar that crosses it takes the reserved
+   critical status colour with an icon and a label, never colour alone. Two DNA chains =
+   small multiples on one shared x scale.
+   ========================================================================= */
+function renderOffTarget() {
+  guard('ot-chart', node => {
+    if (!CF || !(CF.offTarget || []).length)
+      return empty(node, CF_EMPTY);
+    node.textContent = '';
+    const panels = CF.offTarget;
+    let maxv = 0;
+    panels.forEach(p => p.rows.forEach(r => { maxv = Math.max(maxv, r.iptm || 0); }));
+    maxv = Math.max(0.1, maxv) * 1.32;   /* headroom for the value labels */
+
+    const rowH = 32, m = {t:36, r:16, b:44, l:88};
+    const panelW = 470;
+    const nrows = Math.max.apply(null, panels.map(p => p.rows.length));
+    const W = m.l + panelW * panels.length + (panels.length - 1) * 44 + m.r;
+    const H = m.t + nrows * rowH + m.b;
+    const svg = el('svg', {width:W, height:H, viewBox:'0 0 ' + W + ' ' + H, role:'img',
+      'aria-label':'Interface confidence against IL-6 and the gp130-family off-targets'},
+      svg0(node));
+    svg.style.minWidth = W + 'px';
+
+    panels.forEach((p, pi) => {
+      const x0 = m.l + pi * (panelW + 44);
+      const x = lin(0, maxv, x0, x0 + panelW - 130);
+      const head = p.dna + (p.dnaLen ? ' · ' + p.dnaLen + ' nt' : '') +
+                   ' · ' + p.model + ' ipTM';
+      txt(svg, x0, 14, head, {'font-size':12.5, fill:P.ink, 'font-weight':600});
+      const pkd = (DATA.constructParent || {}).kdNM;
+      txt(svg, x0, 28, p.dna.indexOf('parent') === 0
+            ? ('the bare parent — the only chain here with a measured K_D' +
+               (pkd ? ' (' + pkd.toFixed(0) + ' nM for IL-6)' : ''))
+            : 'top-ranked switch construct at the time of the run',
+          {'font-size':11, fill:P.muted});
+
+      /* the reference the whole panel is read against */
+      const rx = x(p.onTarget || 0);
+      el('line', {x1:rx, x2:rx, y1:m.t - 6, y2:m.t + p.rows.length * rowH - 2,
+                  stroke:P.ink2, 'stroke-width':1.5, 'stroke-dasharray':'4 3'}, svg);
+
+      p.rows.forEach((r, i) => {
+        const y = m.t + i * rowH;
+        const beats = !r.onTarget && (r.iptm || 0) > (p.onTarget || 0);
+        const fill = r.onTarget ? P.s1 : (beats ? P.crit : P.muted);
+        const w = Math.max(2, x(r.iptm || 0) - x0);
+        el('rect', {x:x0, y:y + 5, width:w, height:rowH - 14, rx:4, fill:fill}, svg);
+        txt(svg, x0 - 8, y + rowH / 2 + 4, r.label,
+            {'text-anchor':'end', 'font-size':11.5,
+             fill:r.onTarget ? P.ink : (beats ? P.ink : P.ink2),
+             'font-weight':(r.onTarget || beats) ? 600 : 400});
+        txt(svg, x0 - 8, y + rowH / 2 + 15, r.uniprot || '',
+            {'text-anchor':'end', 'font-size':9.5, fill:P.muted});
+        let lx = x0 + w + 8;
+        const lt = txt(svg, lx, y + rowH / 2 + 4, cfNum(r.iptm),
+                       {'font-size':11.5, fill:P.ink});
+        lx += 34;
+        if (r.onTarget) {
+          txt(svg, lx, y + rowH / 2 + 4, 'on-target', {'font-size':10.5, fill:P.ink2});
+        } else if (beats) {
+          txt(svg, lx, y + rowH / 2 + 4, '⚠ outscores IL-6 by ' +
+              Math.abs(r.margin || 0).toFixed(3), {'font-size':10.5, fill:P.crit,
+                                                   'font-weight':600});
+        } else {
+          txt(svg, lx, y + rowH / 2 + 4, (r.margin > 0 ? '+' : '') + cfNum(r.margin),
+              {'font-size':10.5, fill:P.muted});
+        }
+        const hit = el('rect', {x:x0 - 84, y:y, width:panelW, height:rowH,
+                                fill:'transparent'}, svg);
+        hit.addEventListener('pointermove', ev => showTip(ev, [
+          {color:fill, value:r.label + ' (' + (r.uniprot || '?') + ')', name:p.dna},
+          {value:'ipTM ' + cfNum(r.iptm),
+           name:r.onTarget ? 'the true target' :
+                (beats ? 'ranked ABOVE the true target' :
+                 'margin ' + (r.margin > 0 ? '+' : '') + cfNum(r.margin) + ' below IL-6')},
+          {value:(r.nContacts === null || r.nContacts === undefined) ? '—' : r.nContacts,
+           name:'contact residues < 4.0 Å'}
+        ]));
+        hit.addEventListener('pointerleave', hideTip);
+      });
+      /* x axis */
+      const ay = m.t + p.rows.length * rowH + 2;
+      el('line', {x1:x0, x2:x(maxv / 1.32), y1:ay, y2:ay, stroke:P.axis,
+                  'stroke-width':1, 'shape-rendering':'crispEdges'}, svg);
+      for (let v = 0; v <= maxv / 1.32 + 1e-9; v += 0.2) {
+        el('line', {x1:x(v), x2:x(v), y1:ay, y2:ay + 4, stroke:P.axis}, svg);
+        txt(svg, x(v), ay + 15, v.toFixed(1), {'text-anchor':'middle', 'font-size':10,
+                                               fill:P.muted});
+      }
+      txt(svg, x0, ay + 30, 'ipTM (0–1, higher = more confident interface) · dashed rule = ' +
+          'IL-6, the true target', {'font-size':10.5, fill:P.ink2});
+    });
+
+    const lg = document.createElement('div'); lg.className = 'legend';
+    [[P.s1, 'IL-6 — the true target'], [P.muted, 'gp130-family off-target, scored below IL-6'],
+     [P.crit, '⚠ off-target scored ABOVE IL-6 — the metric failing its control']]
+      .forEach(([c, label]) => {
+        const k = document.createElement('span'); k.className = 'k';
+        const s = document.createElement('span'); s.className = 'sw'; s.style.background = c;
+        k.appendChild(s); k.appendChild(document.createTextNode(label)); lg.appendChild(k);
+      });
+    node.appendChild(lg);
+  });
+}
+
+function renderOffTargetTable() {
+  guard('ot-table', node => {
+    if (!CF || !(CF.offTarget || []).length) return empty(node, CF_EMPTY);
+    node.textContent = '';
+    const panels = CF.offTarget;
+    const order = [];
+    panels.forEach(p => p.rows.forEach(r => {
+      if (order.indexOf(r.target) < 0) order.push(r.target); }));
+    const t = document.createElement('table');
+    const thead = document.createElement('thead'), htr = document.createElement('tr');
+    const head = ['Target', 'UniProt'];
+    panels.forEach(p => head.push(p.dna + ' ipTM', p.dna + ' margin vs IL-6',
+                                  p.dna + ' contacts (< 4.0 Å)'));
+    head.forEach((h, i) => { const th = document.createElement('th');
+      th.textContent = h; if (i < 2) th.className = 'l'; htr.appendChild(th); });
+    thead.appendChild(htr); t.appendChild(thead);
+    const tb = document.createElement('tbody');
+    order.forEach(tg => {
+      const tr = document.createElement('tr');
+      const any = panels.map(p => p.rows.find(r => r.target === tg)).find(Boolean) || {};
+      const td0 = document.createElement('td'); td0.className = 'l';
+      td0.textContent = any.label || tg;
+      if (any.onTarget) {
+        const b = document.createElement('span'); b.className = 'badge ok';
+        b.style.marginLeft = '8px'; b.textContent = 'on-target';
+        td0.appendChild(b);
+      }
+      tr.appendChild(td0);
+      const td1 = document.createElement('td'); td1.className = 'l mono';
+      td1.textContent = any.uniprot || '—'; tr.appendChild(td1);
+      panels.forEach(p => {
+        const r = p.rows.find(q => q.target === tg) || {};
+        const beats = r.iptm !== undefined && !r.onTarget && r.iptm > (p.onTarget || 0);
+        const a = document.createElement('td'); a.textContent = cfNum(r.iptm);
+        if (beats) { a.style.color = P.crit; a.style.fontWeight = '600'; }
+        tr.appendChild(a);
+        const bcell = document.createElement('td');
+        bcell.textContent = r.onTarget ? '—'
+          : (r.margin === undefined || r.margin === null ? '—'
+             : (r.margin > 0 ? '+' : '') + r.margin.toFixed(3));
+        if (beats) { bcell.style.color = P.crit; bcell.style.fontWeight = '600';
+                     bcell.title = 'ranked above the true target'; }
+        tr.appendChild(bcell);
+        const c = document.createElement('td');
+        c.textContent = (r.nContacts === undefined || r.nContacts === null) ? '—' : r.nContacts;
+        tr.appendChild(c);
+      });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); node.appendChild(t);
+  });
+}
+
+function renderCofold() {
+  renderCofoldTrack(); renderCofoldMatrix(); renderCofoldTable();
+}
+function buildCofoldPicker() {
+  const sel = document.getElementById('cf-chain');
+  if (!sel) return;
+  if (!CF) { renderCofold(); renderOffTarget(); renderOffTargetTable(); return; }
+  sel.textContent = '';
+  CF.chains.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = c.dna + (c.len ? ' — ' + c.len + ' nt' : '') +
+                    (c.kind ? ' ' + c.kind : '') +
+                    (c.kdAppNM ? ' · K_D,app ' + c.kdAppNM.toFixed(0) + ' nM at run time' : '');
+    sel.appendChild(o);
+  });
+  sel.value = String(cfChain);
+  if (!sel.dataset.wired) {
+    sel.addEventListener('change', () => { cfChain = +sel.value || 0; renderCofold(); });
+    sel.dataset.wired = '1';
+  }
+  renderCofold(); renderOffTarget(); renderOffTargetTable();
+}
+
 /* ---------- boot + theme ---------- */
 function renderAll() {
   P = PAL[mode()];
@@ -2017,6 +2809,7 @@ function renderAll() {
   /* views 9-10 read their own files and are deliberately NOT scoped by the switch filter row */
   renderMismatchChart(); renderMismatchTable();
   renderControlDist(); renderControlTable();
+  renderCofold(); renderOffTarget(); renderOffTargetTable();
   if (window.__ssRedraw) window.__ssRedraw();
   if (window.__molRedraw) window.__molRedraw();
 }
@@ -2028,6 +2821,7 @@ function boot() {
   renderMismatchChart(); renderMismatchTable();
   renderControlDist(); renderControlTable();
   buildStructurePicker();
+  buildCofoldPicker();
   /* fornac normally executes before this script, but poll briefly in case the CDN is slow;
      if it never arrives the arc diagram that is already on screen simply stays. */
   if (!fornaCtor()) {
@@ -2093,6 +2887,21 @@ def stat_tiles(data):
         tiles.append(tile("Tightest parent K_D", f"{b['kd_nM']:.1f}", f"nM · {b['name']}"))
         flagged = sum(1 for p in parents if p.get("issues"))
         tiles.append(tile("Parents with uncertain nucleotides", flagged, f"of {len(parents)}"))
+    # The two co-folding results, at the top of the page rather than 11 sections down: both are
+    # negative, and a reader who only sees the stat row must still see them.
+    cf = data.get("cofold")
+    if cf:
+        worst = min(cf["chains"], key=lambda c: (c["nConsensus"] or 0) / max(1, c["nUnion"] or 1))
+        tiles.append(tile("Residues all four models agree the DNA touches",
+                          f"{worst['nConsensus']} of {worst['nUnion']}",
+                          f"union contacts · {worst['dna']} · view 11"))
+        fails = [p for p in cf["offTarget"] if p["beats"]]
+        if fails:
+            p = fails[0]
+            top = p["rows"][0]
+            tiles.append(tile("Off-target ranked above the true target",
+                              f"{top['label']} {top['iptm']:.3f}",
+                              f"vs IL-6 {p['onTarget']:.3f} · {p['dna']} · view 12"))
     return "\n".join(tiles)
 
 
@@ -2242,6 +3051,175 @@ def build_html(data):
             f'{rate_lo:.0%}–{rate_hi:.0%} control pass rate as this pipeline\'s '
             f'false-positive floor, not as zero.</div>')
 
+    # --- views 11-12: co-folding ----------------------------------------------------------
+    # Every caveat below is static HTML above the figure it qualifies, with its numbers read
+    # from cofold_summary.json rather than typed in, so a re-run of the co-folding step moves
+    # the caveat too. None of this is a footnote: each one changes how the figure reads.
+    cf = data.get("cofold")
+    stale = data.get("cofoldStale")
+    cofold_head = "Co-folded structures — not yet generated"
+    cofold_caveats = cofold_lead = cf_caveat = ot_headline = ot_caveat = ""
+    cofold_n = 0
+    cf_model_count = "the models"
+    if cf:
+        cf_model_count = {1: "one model", 2: "two models", 3: "three models",
+                          4: "four models"}.get(len(cf["models"]),
+                                                f"{len(cf['models'])} models")
+        c = cf["counts"]
+        cofold_n = c.get("succeeded", 0)
+        cofold_head = (
+            f"Co-folded structures — {cofold_n} of "
+            f"{c.get('total_predictions_attempted', cofold_n)} predictions, "
+            f"{len(cf['models'])} models, {len(cf['chains'])} DNA chains")
+        cofold_lead = (
+            '<div class="callout"><b>These are figures and a hypothesis. They are not ranking '
+            'input, and nothing below feeds the pipeline\'s ranking.</b> '
+            'The ranking comes from switches.csv — thermodynamics and a measured K_D — and '
+            'these predictions were run after it, never into it. Read views 11 and 12 as two '
+            'negative results: the models do not agree with each other, and the one '
+            'specificity check with a known right answer gets it wrong.'
+            + (f'<br><span class="sub" style="display:inline-block;margin-top:6px">'
+               f'From <code>cofold_summary.json</code>: {cf["interpretation"]}</span>'
+               if cf.get("interpretation") else "")
+            + '</div>')
+
+        # 1. the constructs are stale -----------------------------------------------------
+        if stale and stale["now"]:
+            t, now, sh = stale["then"], stale["now"], stale["short"]
+            nowlen = f"{now['len']} nt" if now["len"] else "a shorter construct"
+            shorter = (f' and <b>{sh["len"]} nt at {sh["kd"]:.0f} nM</b> ({sh["what"]}) — '
+                       f'{t["len"] - sh["len"]} nt shorter than {t["dna"]} and still tighter '
+                       f'than every chain co-folded here'
+                       if sh and t.get("len") and sh["len"] < t["len"] else "")
+            cofold_caveats += (
+                f'<div class="caveat"><b>⚠ The co-folded constructs are stale — do not compare '
+                f'them to views 3–9.</b> They were snapshotted before the ensemble-ΔG and '
+                f'K_closed corrections and before mismatch tuning existed. '
+                f'<b>{t["dna"]}</b>, the top-ranked construct then, is '
+                f'{t["len"]} nt at K_D,app {t["kd"]:.0f} nM; the {stale["nUsed"]} constructs '
+                f'here span {stale["thenLenLo"]}–{stale["thenLenHi"]} nt and '
+                f'{stale["thenKdLo"]:.0f}–{stale["thenKdHi"]:.0f} nM. The library now reaches '
+                f'<b>{nowlen} at {now["kd"]:.0f} nM</b> ({now["what"]}){shorter}. Same '
+                f'pipeline, different molecules: every structure below is of a sequence the '
+                f'shortlist has since moved past.</div>')
+        # 2. opendde's flat confidence ----------------------------------------------------
+        od = [e["iptm"] for ch in cf["chains"] for e in ch["models"]
+              if e["model"] == "opendde" and e["iptm"] is not None]
+        vs = cf["vsOthers"] or {}
+        if od and len(od) > 1:
+            cofold_caveats += (
+                f'<div class="caveat"><b>⚠ opendde returns a near-constant ipTM '
+                f'({min(od):.2f}–{max(od):.2f}) whatever you feed it.</b> Across all '
+                f'{len(od)} DNA chains its interface confidence moves by '
+                f'{max(od) - min(od):.2f}, while it is also the model that agrees least with '
+                f'the others'
+                + (f' (mean tolerant Jaccard {vs["opendde"]:.3f} against the other three)'
+                   if "opendde" in vs else "")
+                + '. It is the most confident model and the least concordant one. A '
+                  'confidence score that does not vary with its input is not carrying '
+                  'information about the input — read it as a warning sign, not a strength.'
+                  '</div>')
+        # 3. ipTM collapses with tether length --------------------------------------------
+        bz = {ch["dna"]: (e["iptm"], ch["len"]) for ch in cf["chains"] for e in ch["models"]
+              if e["model"] == "boltz2" and e["iptm"] is not None}
+        par = next((v for k, v in bz.items() if k.startswith("parent")), None)
+        con = [v for k, v in bz.items() if not k.startswith("parent")]
+        if par and con:
+            lo = min(v[0] for v in con)
+            hi = max(v[0] for v in con)
+            cofold_caveats += (
+                f'<div class="caveat"><b>⚠ ipTM collapses with tether length, which is most '
+                f'likely an artefact rather than worse binding.</b> Boltz-2 scores '
+                f'{par[0]:.3f} on the bare {par[1]}-nt parent and {lo:.3f}–{hi:.3f} on the '
+                f'{min(v[1] for v in con)}–{max(v[1] for v in con)}-nt constructs. The '
+                f'difference is mostly {min(v[1] for v in con) - par[1]}–'
+                f'{max(v[1] for v in con) - par[1]} nt of single-stranded poly-T spacer being '
+                f'scored: it has no defined conformation, so whatever the model draws there is '
+                f'arbitrary and it drags the interface score down by existing. Compare '
+                f'constructs with constructs; never parent against construct.</div>')
+
+        # view 11's own caveat -------------------------------------------------------------
+        zeros = sorted({tuple(sorted(k.split("|"))) for ch in cf["chains"]
+                        for k, v in ch["jaccard"].items() if v == 0})
+        jl = [ch["meanJ"] for ch in cf["chains"] if ch["meanJ"] is not None]
+        jt = [ch["meanJTol"] for ch in cf["chains"] if ch["meanJTol"] is not None]
+        agree_max = max((ch["nConsensus"] or 0) for ch in cf["chains"])
+        if jl:
+            pairs = ", ".join(a + " vs " + b for a, b in zeros[:3])
+            cf_caveat = (
+                f'<div class="caveat"><b>⚠ The four models do not agree on where the aptamer '
+                f'binds, so the binding mode is unresolved.</b> Mean pairwise Jaccard of the '
+                f'contact residues is {min(jl):.3f}–{max(jl):.3f} '
+                f'({min(jt):.3f}–{max(jt):.3f} allowing ±2 residues), and at most '
+                f'{agree_max} residue out of unions of '
+                f'{min(ch["nUnion"] for ch in cf["chains"])}–'
+                f'{max(ch["nUnion"] for ch in cf["chains"])} is called by all four'
+                + (f'. Some pairs share nothing at all: {pairs} score exactly 0.000.'
+                   if zeros else '.')
+                + ' Three of them — ' + " + ".join(cf["trioModels"]) + ' — do broadly converge '
+                  'on two patches, and those recurring residues are the obvious thing to probe '
+                  'experimentally, but three models that share training data and biases are '
+                  'correlated evidence, not independent replication.</div>')
+
+        # view 12's headline: this one must be impossible to miss --------------------------
+        fails = [p for p in cf["offTarget"] if p["beats"]]
+        tight = None
+        for p in cf["offTarget"]:
+            for r in p["rows"]:
+                if not r["onTarget"] and r["margin"] is not None and r["margin"] > 0:
+                    if tight is None or r["margin"] < tight[0]:
+                        tight = (r["margin"], r["label"], p["dna"])
+        if fails:
+            p = fails[0]
+            top = max((r for r in p["rows"] if not r["onTarget"]),
+                      key=lambda r: r["iptm"] or 0)
+            # p["rows"] is already sorted by ipTM, so IL-6's index is its rank among the five
+            place = [r["target"] for r in p["rows"]].index("IL6") + 1
+            place = {1: "first", 2: "second", 3: "third", 4: "fourth",
+                     5: "fifth"}.get(place, f"#{place}")
+            ot_headline = (
+                f'<div class="caveat"><b>⚠ The metric ranks a known non-target above the known '
+                f'target.</b> For <b>{p["dna"]}</b> — the only chain here with a real measured '
+                + (f'affinity (K_D {cp["kdNM"]:.0f} nM for IL-6 by SPR, and no measurable '
+                   f'binding to human serum albumin) — ' if cp and cp.get("kdNM")
+                   else "affinity — ")
+                + f'{p["model"]} scores '
+                f'<b>{top["label"]} {top["iptm"]:.3f}</b> against <b>IL-6 '
+                f'{p["onTarget"]:.3f}</b>. The true target comes {place} of the '
+                f'{len(p["rows"])} cytokines, behind one the aptamer is not known to bind, by '
+                f'{abs(top["margin"]):.3f} ipTM. This is a negative result <i>about the '
+                f'method</i>, not specificity data'
+                + (f': because the metric fails the one case where the right answer is known, '
+                   f'the {tight[1]} margin of +{tight[0]:.3f} on {tight[2]} carries no '
+                   f'information either — it is well inside the error the control just '
+                   f'demonstrated.' if tight else '.')
+                + '</div>')
+        ot_caveat = (
+            '<div class="caveat"><b>⚠ Do not quote any number in this view as specificity.</b> '
+            'The design is the most defensible thing here — same model, same DNA, same '
+            'protocol, five homologous cytokines, so systematic errors partly cancel — and it '
+            'still fails. What the panels rule out is the metric as a selection filter; they '
+            'are not evidence that the aptamer is or is not selective. The two panels do not '
+            'even agree with each other on the ordering of the off-targets.</div>')
+
+    # --- view 8: which complexes are inlined, and what is not ------------------------------
+    inlined = [s for s in data["structures"] if s.get("chainA")]
+    on_disk = (cf or {}).get("nOnDisk", 0)
+    if inlined:
+        left = max(0, on_disk - len(inlined))
+        complex_note = (
+            f"{len(inlined)} co-folded complexes are inlined here, chosen because they carry "
+            f"the argument: the same DNA chain placed by all four models (view 11's "
+            f"disagreement, in 3D) plus the off-target run that outscores the true target "
+            f"(view 12). Chain A is the protein and chain B the DNA, coloured apart. "
+            + (f"The other {left} of the {on_disk} predicted structures are not inlined — each "
+               f".cif is ~250 KB and all of them would add several MB to this page — they are "
+               f"on disk in <code>aptamer/cofold/structures/</code>."
+               if left else "")
+            + " These are predictions, not solved structures; see the caveats in views 11–12.")
+    elif complexes:
+        complex_note = f"{len(complexes)} co-folded complex(es) found."
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2260,7 +3238,8 @@ def build_html(data):
   <div class="grow">
     <h1>Structure-switching IL-6 aptamers</h1>
     <p class="sub">{n_par} parent aptamers · {n_sw} ranked ISD switch constructs ·
-       {n_mm} single-mismatch variants · {n_ctl} negative-control rows{parent_line} ·
+       {n_mm} single-mismatch variants · {n_ctl} negative-control rows ·
+       {cofold_n} co-folded complexes{parent_line} ·
        generated by <code>aptamer/dashboard.py</code>. All data is inlined — works offline
        except the 3D panel.</p>
   </div>
@@ -2340,9 +3319,10 @@ same slice. Views 9 and 10 read their own files and are not filtered here.</p>
   that needs internet.</p></header>
   <div style="margin-bottom:10px">
     <label class="sub" for="mol-select">Structure&nbsp;</label>
-    <select id="mol-select"></select>
+    <select id="mol-select" style="max-width:min(620px,100%)"></select>
   </div>
   <div class="viewer" id="mol-viewer"></div>
+  <div class="legend" id="mol-key"></div>
 </section>
 
 <section class="card">
@@ -2375,6 +3355,49 @@ same slice. Views 9 and 10 read their own files and are not filtered here.</p>
   <div id="nc-chart"></div>
   <details class="tv" open><summary>Table view — median score and pass rate per arm</summary>
     <div id="nc-table" style="margin-top:8px"></div></details>
+</section>
+
+<h2 style="margin:28px 0 10px">{cofold_head}</h2>
+<p class="sub" style="margin-bottom:12px">Read from <code>aptamer/cofold/</code>, which this
+page never writes. Views 11 and 12 are not scoped by the switch filter row: the co-folding step
+ran against its own snapshot of the library.</p>
+
+{cofold_lead}
+{cofold_caveats}
+
+<section class="card">
+  <header><h2>11 · Cross-model agreement — where {cf_model_count} put the DNA on IL-6</h2>
+  <p class="sub">One lane per structure-prediction model, along the IL-6 mature chain as a
+  residue axis. A mark is an IL-6 residue with at least one heavy atom within 4.0 Å of any DNA
+  atom in that model's predicted complex — measured from the returned coordinates, not a score
+  the model reports. The strip underneath counts how many models call each residue, and ▲ marks
+  the residues all three of the converging models agree on. The matrices are the same contact
+  sets as pairwise Jaccard overlap, exact and allowing ±2 residues (two models can hit the same
+  patch and still score near zero if their lists are offset by a residue or two).</p></header>
+  {cf_caveat}
+  <div style="margin-bottom:10px">
+    <label class="sub" for="cf-chain">DNA chain&nbsp;</label>
+    <select id="cf-chain" style="max-width:min(620px,100%)"></select>
+  </div>
+  <div id="cf-track"></div>
+  <div id="cf-matrix" style="margin-top:18px"></div>
+  <details class="tv" open><summary>Table view — per-model confidence, contact count and
+    patches</summary>
+    <div id="cf-table" style="margin-top:8px"></div></details>
+</section>
+
+<section class="card">
+  <header><h2>12 · Off-target panels — the specificity metric fails its own control</h2>
+  <p class="sub">Boltz-2 ipTM for one DNA chain against IL-6 and the four other gp130-family
+  cytokines, same model and same protocol throughout. Two chains, two panels, one shared
+  scale. The dashed rule in each panel is the on-target IL-6 value; an off-target bar that
+  crosses it is the model preferring a cytokine the aptamer is not known to bind.</p></header>
+  {ot_headline}
+  {ot_caveat}
+  <div id="ot-chart"></div>
+  <details class="tv" open><summary>Table view — ipTM, margin and contact count for every
+    target</summary>
+    <div id="ot-table" style="margin-top:8px"></div></details>
 </section>
 
 <footer class="foot">
@@ -2412,8 +3435,25 @@ def main():
         print(f"construct parent: {cp['name']} ({cp['length']} nt"
               + (f", truncation of {cp['source']} at {cp['sourceLength']} nt)"
                  if cp["truncated"] else ")"))
+    cf = data.get("cofold")
+    if cf:
+        c = cf["counts"]
+        print(f"cofold summary : {c.get('succeeded')}/{c.get('total_predictions_attempted')} "
+              f"predictions, {len(cf['models'])} models, {len(cf['chains'])} DNA chains, "
+              f"{len(cf['offTarget'])} off-target panel(s)")
+        for ch in cf["chains"]:
+            print(f"  {ch['dna']:<11}: mean Jaccard {ch['meanJ']}, "
+                  f"{ch['nConsensus']}/{ch['nUnion']} residues all models agree on, "
+                  f"trio consensus {ch['trio'] or '-'}")
+        for p in cf["offTarget"]:
+            print(f"  {p['dna']:<11}: on-target {p['onTarget']:.3f}, min margin "
+                  f"{p['minMargin']}" + (f", OUTSCORED BY {', '.join(p['beats'])}"
+                                         if p["beats"] else ""))
+    else:
+        print("cofold         : aptamer/cofold/cofold_summary.json absent -> views 11-12 show "
+              "'not yet generated'")
     for s in data["structures"]:
-        print(f"{s['name']:<15}: {s['atoms']} atoms ({s['kind']})")
+        print(f"{s['name']:<28}: {s['atoms']} atoms ({s['kind']})")
     if not any(s["kind"] == "complex" for s in data["structures"]):
         print("co-folded      : none yet -> 3D panel shows the receptor only")
     for n in data["notes"]:
