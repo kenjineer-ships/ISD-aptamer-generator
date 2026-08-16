@@ -1,0 +1,15 @@
+# Normalise line endings to LF in the repository AND on checkout.
+#
+# Git for Windows sets core.autocrlf=true at SYSTEM scope, so a Windows clone would otherwise
+# get CRLF. That is not cosmetic here: CRLF shell scripts uploaded into a Linux container fail
+# with `set: pipefail\r: invalid option name`, which is exactly the bug that cost this project
+# a Modal deploy cycle. All 72 .sh files in the proto-tools install were affected.
+* text=auto eol=lf
+
+# Structure and data files: keep bytes exactly as-is.
+*.pdb -text
+*.cif -text
+*.tif -text
+*.jpg -text
+*.gif -text
+*.xlsx -text

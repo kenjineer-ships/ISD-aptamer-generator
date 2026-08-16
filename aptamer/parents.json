@@ -1,0 +1,56 @@
+[
+ {
+  "name": "IL-6-7326",
+  "sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACAAAACATTCAAACAGAAATCTACTAGTCAC",
+  "length": 74,
+  "KD_M": 2.7e-08,
+  "koff_s": 0.0015,
+  "variant": "7326.1 truncated",
+  "issues": [],
+  "structure_22C": "..............((.(((((.....))))).))...............(((.....))).............",
+  "mfe_22C": -9.869999885559082,
+  "structure_37C": "..............((.(((((.....))))).))...............(((.....))).............",
+  "mfe_37C": -5.699999809265137
+ },
+ {
+  "name": "IL-6-6449",
+  "sequence": "TGTGTATAAGTCGCGAGGTTTGAATGGAACCATCGGCGCCAACAAAACATTCAAACAGAAATCTACTAGTCAC",
+  "length": 73,
+  "KD_M": 3.21e-08,
+  "koff_s": 0.00152,
+  "variant": "6449 full",
+  "issues": [
+   "block 2 'GG' is 2 nt, template expects 3"
+  ],
+  "structure_22C": ".(((....(((....(((((((((((.....................)))))))))......)))))...)))",
+  "mfe_22C": -10.479999542236328,
+  "structure_37C": ".................(((((((((.....................))))))))).................",
+  "mfe_37C": -5.900000095367432
+ },
+ {
+  "name": "IL-6-9805",
+  "sequence": "TGTGTATAAGTCACGAGGTTTGAATAAGAACCATCGGCGCCAACAAAACATTCAAACAGAAATCTACTAGTCAC",
+  "length": 74,
+  "KD_M": 4.05e-08,
+  "koff_s": 0.00177,
+  "variant": "9805 full",
+  "issues": [],
+  "structure_22C": ".(((.......)))...((((((((........................)))))))).................",
+  "mfe_22C": -9.020000457763672,
+  "structure_37C": ".(((.......)))...((((((((........................)))))))).................",
+  "mfe_37C": -4.099999904632568
+ },
+ {
+  "name": "IL-6-4202",
+  "sequence": "TGTGTATAAGTCCTGAGGTGTGAATACAAACCATCGGCGCCAACAAAACATTCAAACAGAAATCTACTAGTCAC",
+  "length": 74,
+  "KD_M": 7.32e-08,
+  "koff_s": 0.00298,
+  "variant": "4202.1 truncated",
+  "issues": [],
+  "structure_22C": "............(((((((.((....)).))).)))).............(((.....))).............",
+  "mfe_22C": -5.550000190734863,
+  "structure_37C": "...........((.(((((.((....)).))).)))).............(((.....))).............",
+  "mfe_37C": -3.4000000953674316
+ }
+]

@@ -1,0 +1,73 @@
+{
+  "snapshot_utc": "2026-08-16T02:38:33.343254Z",
+  "switches_csv_sha256": "e7b62e8cb236d7e07a0943c37bfc2cbaecc47a57a65023941603a925d8f6f6c5",
+  "n_rows": 1679,
+  "parent": {
+    "name": "IL-6-7326.1",
+    "sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+    "len": 45,
+    "kd_M": 2.7e-08
+  },
+  "top5": [
+    {
+      "rank": 1,
+      "construct": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+      "ds": "AACCCTCTTG",
+      "window": "11-20",
+      "tether_nt": "49",
+      "kd_app_nM": "971.2",
+      "dg_switch": "-2.19",
+      "closed_frac": "0.972",
+      "selectivity": "8.34",
+      "structure": "...........(((((((((((((.........................................................)))))))))))))"
+    },
+    {
+      "rank": 2,
+      "construct": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCAATTCAACCC",
+      "ds": "CAATTCAACCC",
+      "window": "16-26",
+      "tether_nt": "53",
+      "kd_app_nM": "984.2",
+      "dg_switch": "-2.2",
+      "closed_frac": "0.973",
+      "selectivity": "8.23",
+      "structure": "................(((((((((((............................................................)))))))))))"
+    },
+    {
+      "rank": 3,
+      "construct": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTCAATTCAACCC",
+      "ds": "CAATTCAACCC",
+      "window": "16-26",
+      "tether_nt": "54",
+      "kd_app_nM": "951.8",
+      "dg_switch": "-2.18",
+      "closed_frac": "0.972",
+      "selectivity": "8.23",
+      "structure": "................(((((((((((.............................................................)))))))))))"
+    },
+    {
+      "rank": 4,
+      "construct": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTGCAATTCAA",
+      "ds": "GCAATTCAA",
+      "window": "19-27",
+      "tether_nt": "27",
+      "kd_app_nM": "922.5",
+      "dg_switch": "-2.16",
+      "closed_frac": "0.971",
+      "selectivity": "4.88",
+      "structure": "...................(((((((((((...............................)))))))))))"
+    },
+    {
+      "rank": 5,
+      "construct": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+      "ds": "AACCCTCTTG",
+      "window": "11-20",
+      "tether_nt": "50",
+      "kd_app_nM": "885.9",
+      "dg_switch": "-2.13",
+      "closed_frac": "0.97",
+      "selectivity": "8.34",
+      "structure": "...........(((((((((((((..........................................................)))))))))))))"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# conda env create -f environment.yml && conda activate eab-aptamer
+#
+# Windows first: git config --global core.longpaths true
+#   proto-language has example files with very long names; pip clones into a deep temp path,
+#   blows past MAX_PATH, and the build dies as "CondaEnvException: Pip failed".
+#
+# Do NOT add proto-tools here. proto-language already pins it as
+#   proto_tools @ git+https://github.com/evo-design/proto-tools.git@main
+# and pip treats the same URL with and without "@main" as conflicting direct references
+# (ResolutionImpossible). proto-language also pulls numpy/pandas/scipy/matplotlib/biopython.
+#
+# ViennaRNA and primer3-py are pinned: MFE values, and therefore candidate ranking,
+# depend on the energy parameters shipped with the release.
+
+name: eab-aptamer
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - ViennaRNA==2.7.2
+      - primer3-py==2.3.0
+      - "proto-language @ git+https://github.com/evo-design/proto-language.git"

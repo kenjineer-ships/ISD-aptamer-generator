@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Environments (recreate from environment.yml)
+.venv/
+venv/
+env/
+
+# Proto / tool caches and model weights — large, machine-local
+.proto/
+.micromamba/
+
+# Credentials — Modal writes a token file; never commit one
+.modal.toml
+*.token
+
+# Local agent permissions, not shared
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Large or regenerable outputs
+*.cif
+*.log

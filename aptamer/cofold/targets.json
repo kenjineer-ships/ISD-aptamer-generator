@@ -1,0 +1,62 @@
+{
+  "IL6": {
+    "label": "IL6",
+    "uniprot": "P05231",
+    "full_len": 212,
+    "mature_range": [
+      30,
+      212
+    ],
+    "mature_seq": "VPPGEDSKDVAAPHRQPLTSSERIDKQIRYILDGISALRKETCNKSNMCESSKEALAENNLNLPKMAEKDGCFQSGFNEETCLVKIITGLLEFEVYLEYLQNRFESSEEQARAVQMSTKVLIQFLQKKAKNLDAITTPDPTTNASLLTKLQAQNQWLQDMTTHLILRSFKEFLQSSLRALRQM",
+    "mature_len": 183,
+    "note": "UniProt Chain feature 30-212 of P05231; signal peptide/propeptide stripped"
+  },
+  "IL11": {
+    "label": "IL11",
+    "uniprot": "P20809",
+    "full_len": 199,
+    "mature_range": [
+      22,
+      199
+    ],
+    "mature_seq": "PGPPPGPPRVSPDPRAELDSTVLLTRSLLADTRQLAAQLRDKFPADGDHNLDSLPTLAMSAGALGALQLPGVLTRLRADLLSYLRHVQWLRRAGGSSLKTLEPELGTLQARLDRLLRRLQLLMSRLALPQPPPDPPAPPLAPPSSAWGGIRAAHAILGGLHLTLDWAVRGLLLLKTRL",
+    "mature_len": 178,
+    "note": "UniProt Chain feature 22-199 of P20809; signal peptide/propeptide stripped"
+  },
+  "LIF": {
+    "label": "LIF",
+    "uniprot": "P15018",
+    "full_len": 202,
+    "mature_range": [
+      23,
+      202
+    ],
+    "mature_seq": "SPLPITPVNATCAIRHPCHNNLMNQIRSQLAQLNGSANALFILYYTAQGEPFPNNLDKLCGPNVTDFPPFHANGTEKAKLVELYRIVVYLGTSLGNITRDQKILNPSALSLHSKLNATADILRGLLSNVLCRLCSKYHVGHVDVTYGPDTSGKDVFQKKKLGCQLLGKYKQIIAVLAQAF",
+    "mature_len": 180,
+    "note": "UniProt Chain feature 23-202 of P15018; signal peptide/propeptide stripped"
+  },
+  "OSM": {
+    "label": "OSM",
+    "uniprot": "P13725",
+    "full_len": 252,
+    "mature_range": [
+      26,
+      221
+    ],
+    "mature_seq": "AAIGSCSKEYRVLLGQLQKQTDLMQDTSRLLDPYIRIQGLDVPKLREHCRERPGAFPSEETLRGLGRRGFLQTLNATLGCVLHRLADLEQRLPKAQDLERSGLNIEDLEKLQMARPNILGLRNNIYCMAQLLDNSDTAEPTKAGRGASQPPTPTPASDAFQRKLEGCRFLHGYHRFMHSVGRVFSKWGESPNRSRR",
+    "mature_len": 196,
+    "note": "UniProt Chain feature 26-221 of P13725; signal peptide/propeptide stripped"
+  },
+  "CNTF": {
+    "label": "CNTF",
+    "uniprot": "P26441",
+    "full_len": 200,
+    "mature_range": [
+      1,
+      200
+    ],
+    "mature_seq": "MAFTEHSPLTPHRRDLCSRSIWLARKIRSDLTALTESYVKHQGLNKNINLDSADGMPVASTDQWSELTEAERLQENLQAYRTFHVLLARLLEDQQVHFTPTEGDFHQAIHTLLLQVAAFAYQIEELMILLEYKIPRNEADGMPINVGDGGLFEKKLWGLKVLQELSQWTVRSIHDLRFISSHQTGIPARGSHYIANNKKM",
+    "mature_len": 200,
+    "note": "UniProt Chain feature 1-200 of P26441; signal peptide/propeptide stripped"
+  }
+}
