@@ -1,11 +1,11 @@
 {
   "interpretation": "These co-folds are FIGURES AND A WEAK SPECIFICITY SIGNAL, NOT RANKING INPUT. The aptamer pipeline deliberately does not rank on predicted structure. CASP16's 27-nt DNA aptamer target had 0 of 107 submitted models under 10 A RMSD; AF3 averages 1.45 A on aptamers published before its training cutoff vs 6.40 A after it; only 35.6% of AF3 protein-nucleic-acid predictions recover more than half the native contacts. Treat cross-model agreement as the signal, never a single model's own confidence score.",
   "counts": {
-    "total_predictions_attempted": 28,
-    "succeeded": 28,
+    "total_predictions_attempted": 32,
+    "succeeded": 32,
     "failed": 0,
     "phase_A": 24,
-    "phase_B": 4
+    "phase_B": 8
   },
   "chain_convention": {
     "A": "protein target (mature chain)",
@@ -496,6 +496,39 @@
         }
       },
       "min_margin": 0.0189
+    },
+    "boltz2__parent45": {
+      "model": "boltz2",
+      "dna_id": "parent45",
+      "metric": "iptm",
+      "on_target_IL6": 0.5811216831207275,
+      "off_targets": {
+        "CNTF": {
+          "uniprot": "P26441",
+          "value": 0.5967851281166077,
+          "margin_vs_IL6": -0.0157,
+          "n_contact_residues": 6
+        },
+        "IL11": {
+          "uniprot": "P20809",
+          "value": 0.38931047916412354,
+          "margin_vs_IL6": 0.1918,
+          "n_contact_residues": 8
+        },
+        "LIF": {
+          "uniprot": "P15018",
+          "value": 0.3967398703098297,
+          "margin_vs_IL6": 0.1844,
+          "n_contact_residues": 9
+        },
+        "OSM": {
+          "uniprot": "P13725",
+          "value": 0.38057059049606323,
+          "margin_vs_IL6": 0.2006,
+          "n_contact_residues": 7
+        }
+      },
+      "min_margin": -0.0157
     }
   },
   "failures": [],
@@ -1342,6 +1375,160 @@
       }
     },
     {
+      "key": "boltz2__parent45__CNTF",
+      "phase": "B",
+      "model": "boltz2",
+      "dna_id": "parent45",
+      "dna_chain_id": "B",
+      "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+      "dna_len": 45,
+      "dna_kind": "bare parent aptamer",
+      "dna_rank": 0,
+      "dna_meta": {
+        "kd_M": 2.7e-08,
+        "name": "IL-6-7326.1"
+      },
+      "target": "CNTF",
+      "target_uniprot": "P26441",
+      "target_chain_id": "A",
+      "target_seq_len": 200,
+      "target_mature_range": [
+        1,
+        200
+      ],
+      "seed": 42,
+      "wall_seconds": 12.9,
+      "success": true,
+      "structure_file": "structures/boltz2__parent45__CNTF.cif",
+      "metrics": {
+        "primary_metric": "confidence_score",
+        "metric_type": "Boltz2Metrics",
+        "confidence_score": 0.6745728254318237,
+        "ptm": 0.8195878267288208,
+        "iptm": 0.5967851281166077,
+        "chains_ptm": [
+          0.8789687156677246,
+          0.6999793648719788
+        ],
+        "pair_chains_iptm": [
+          [
+            0.8789687156677246,
+            0.5967851281166077
+          ],
+          [
+            0.5853356719017029,
+            0.6999793648719788
+          ]
+        ],
+        "avg_pae": 8.876053810119629,
+        "ligand_iptm": 0.0,
+        "protein_iptm": 0.0,
+        "complex_plddt": 0.6940197348594666,
+        "complex_iplddt": 0.6809515357017517,
+        "complex_pde": 0.7486832141876221,
+        "complex_ipde": 4.355935573577881
+      },
+      "epitope": {
+        "cutoff_angstrom": 4.0,
+        "n_contact_residues": 6,
+        "residues": {
+          "14": "R",
+          "18": "S",
+          "25": "R",
+          "64": "W",
+          "174": "H",
+          "178": "F"
+        }
+      },
+      "mean_per_residue_plddt": 0.694,
+      "chain_ids_in_output": [
+        "A",
+        "B"
+      ],
+      "interface_confidence": {
+        "metric": "iptm",
+        "value": 0.5967851281166077
+      }
+    },
+    {
+      "key": "boltz2__parent45__IL11",
+      "phase": "B",
+      "model": "boltz2",
+      "dna_id": "parent45",
+      "dna_chain_id": "B",
+      "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+      "dna_len": 45,
+      "dna_kind": "bare parent aptamer",
+      "dna_rank": 0,
+      "dna_meta": {
+        "kd_M": 2.7e-08,
+        "name": "IL-6-7326.1"
+      },
+      "target": "IL11",
+      "target_uniprot": "P20809",
+      "target_chain_id": "A",
+      "target_seq_len": 178,
+      "target_mature_range": [
+        22,
+        199
+      ],
+      "seed": 42,
+      "wall_seconds": 69.2,
+      "success": true,
+      "structure_file": "structures/boltz2__parent45__IL11.cif",
+      "metrics": {
+        "primary_metric": "confidence_score",
+        "metric_type": "Boltz2Metrics",
+        "confidence_score": 0.6164774298667908,
+        "ptm": 0.7716519832611084,
+        "iptm": 0.38931047916412354,
+        "chains_ptm": [
+          0.8730946183204651,
+          0.700463593006134
+        ],
+        "pair_chains_iptm": [
+          [
+            0.8730946183204651,
+            0.38931047916412354
+          ],
+          [
+            0.3872014284133911,
+            0.700463593006134
+          ]
+        ],
+        "avg_pae": 10.01197624206543,
+        "ligand_iptm": 0.0,
+        "protein_iptm": 0.0,
+        "complex_plddt": 0.6732690930366516,
+        "complex_iplddt": 0.6644909381866455,
+        "complex_pde": 0.8541131019592285,
+        "complex_ipde": 7.210708141326904
+      },
+      "epitope": {
+        "cutoff_angstrom": 4.0,
+        "n_contact_residues": 8,
+        "residues": {
+          "33": "R",
+          "60": "S",
+          "61": "A",
+          "62": "G",
+          "161": "H",
+          "162": "L",
+          "165": "D",
+          "169": "R"
+        }
+      },
+      "mean_per_residue_plddt": 0.6733,
+      "chain_ids_in_output": [
+        "A",
+        "B"
+      ],
+      "interface_confidence": {
+        "metric": "iptm",
+        "value": 0.38931047916412354
+      }
+    },
+    {
       "key": "boltz2__parent45__IL6",
       "phase": "A",
       "model": "boltz2",
@@ -1419,6 +1606,162 @@
       "interface_confidence": {
         "metric": "iptm",
         "value": 0.5811216831207275
+      }
+    },
+    {
+      "key": "boltz2__parent45__LIF",
+      "phase": "B",
+      "model": "boltz2",
+      "dna_id": "parent45",
+      "dna_chain_id": "B",
+      "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+      "dna_len": 45,
+      "dna_kind": "bare parent aptamer",
+      "dna_rank": 0,
+      "dna_meta": {
+        "kd_M": 2.7e-08,
+        "name": "IL-6-7326.1"
+      },
+      "target": "LIF",
+      "target_uniprot": "P15018",
+      "target_chain_id": "A",
+      "target_seq_len": 180,
+      "target_mature_range": [
+        23,
+        202
+      ],
+      "seed": 42,
+      "wall_seconds": 19.8,
+      "success": true,
+      "structure_file": "structures/boltz2__parent45__LIF.cif",
+      "metrics": {
+        "primary_metric": "confidence_score",
+        "metric_type": "Boltz2Metrics",
+        "confidence_score": 0.6777464747428894,
+        "ptm": 0.8196362853050232,
+        "iptm": 0.3967398703098297,
+        "chains_ptm": [
+          0.9307248592376709,
+          0.6572650671005249
+        ],
+        "pair_chains_iptm": [
+          [
+            0.9307248592376709,
+            0.3709617257118225
+          ],
+          [
+            0.3967398703098297,
+            0.6572650671005249
+          ]
+        ],
+        "avg_pae": 8.60467529296875,
+        "ligand_iptm": 0.0,
+        "protein_iptm": 0.0,
+        "complex_plddt": 0.7479981184005737,
+        "complex_iplddt": 0.7470664381980896,
+        "complex_pde": 0.9280248284339905,
+        "complex_ipde": 8.757430076599121
+      },
+      "epitope": {
+        "cutoff_angstrom": 4.0,
+        "n_contact_residues": 9,
+        "residues": {
+          "50": "E",
+          "51": "P",
+          "59": "L",
+          "152": "G",
+          "153": "K",
+          "154": "D",
+          "156": "F",
+          "157": "Q",
+          "160": "K"
+        }
+      },
+      "mean_per_residue_plddt": 0.748,
+      "chain_ids_in_output": [
+        "A",
+        "B"
+      ],
+      "interface_confidence": {
+        "metric": "iptm",
+        "value": 0.3967398703098297
+      }
+    },
+    {
+      "key": "boltz2__parent45__OSM",
+      "phase": "B",
+      "model": "boltz2",
+      "dna_id": "parent45",
+      "dna_chain_id": "B",
+      "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACA",
+      "dna_len": 45,
+      "dna_kind": "bare parent aptamer",
+      "dna_rank": 0,
+      "dna_meta": {
+        "kd_M": 2.7e-08,
+        "name": "IL-6-7326.1"
+      },
+      "target": "OSM",
+      "target_uniprot": "P13725",
+      "target_chain_id": "A",
+      "target_seq_len": 196,
+      "target_mature_range": [
+        26,
+        221
+      ],
+      "seed": 42,
+      "wall_seconds": 13.2,
+      "success": true,
+      "structure_file": "structures/boltz2__parent45__OSM.cif",
+      "metrics": {
+        "primary_metric": "confidence_score",
+        "metric_type": "Boltz2Metrics",
+        "confidence_score": 0.5633842945098877,
+        "ptm": 0.7820849418640137,
+        "iptm": 0.38057059049606323,
+        "chains_ptm": [
+          0.8875334858894348,
+          0.6940423846244812
+        ],
+        "pair_chains_iptm": [
+          [
+            0.8875334858894348,
+            0.38057059049606323
+          ],
+          [
+            0.3490227460861206,
+            0.6940423846244812
+          ]
+        ],
+        "avg_pae": 9.896748542785645,
+        "ligand_iptm": 0.0,
+        "protein_iptm": 0.0,
+        "complex_plddt": 0.6090877056121826,
+        "complex_iplddt": 0.6125596761703491,
+        "complex_pde": 1.0902975797653198,
+        "complex_ipde": 8.68057918548584
+      },
+      "epitope": {
+        "cutoff_angstrom": 4.0,
+        "n_contact_residues": 7,
+        "residues": {
+          "19": "K",
+          "23": "L",
+          "106": "E",
+          "116": "P",
+          "117": "N",
+          "123": "N",
+          "127": "C"
+        }
+      },
+      "mean_per_residue_plddt": 0.6091,
+      "chain_ids_in_output": [
+        "A",
+        "B"
+      ],
+      "interface_confidence": {
+        "metric": "iptm",
+        "value": 0.38057059049606323
       }
     },
     {
