@@ -1,0 +1,95 @@
+{
+  "key": "boltz2__construct1__CNTF",
+  "phase": "B",
+  "model": "boltz2",
+  "dna_id": "construct1",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+  "dna_len": 94,
+  "dna_kind": "switch construct",
+  "dna_rank": 1,
+  "dna_meta": {
+    "rank": 1,
+    "ds": "AACCCTCTTG",
+    "window": "11-20",
+    "tether_nt": "49",
+    "kd_app_nM": "971.2",
+    "dg_switch": "-2.19",
+    "closed_frac": "0.972",
+    "selectivity": "8.34",
+    "structure": "...........(((((((((((((.........................................................)))))))))))))"
+  },
+  "target": "CNTF",
+  "target_uniprot": "P26441",
+  "target_chain_id": "A",
+  "target_seq_len": 200,
+  "target_mature_range": [
+    1,
+    200
+  ],
+  "seed": 42,
+  "wall_seconds": 81.4,
+  "success": true,
+  "structure_file": "structures/boltz2__construct1__CNTF.cif",
+  "metrics": {
+    "primary_metric": "confidence_score",
+    "metric_type": "Boltz2Metrics",
+    "confidence_score": 0.5432169437408447,
+    "ptm": 0.6336978077888489,
+    "iptm": 0.22237764298915863,
+    "chains_ptm": [
+      0.8561619520187378,
+      0.3574436902999878
+    ],
+    "pair_chains_iptm": [
+      [
+        0.8561619520187378,
+        0.22237764298915863
+      ],
+      [
+        0.16663822531700134,
+        0.3574436902999878
+      ]
+    ],
+    "avg_pae": 16.915586471557617,
+    "ligand_iptm": 0.0,
+    "protein_iptm": 0.0,
+    "complex_plddt": 0.6234267950057983,
+    "complex_iplddt": 0.6222190260887146,
+    "complex_pde": 1.4001786708831787,
+    "complex_ipde": 12.67684555053711
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 22,
+    "residues": {
+      "2": "A",
+      "3": "F",
+      "49": "N",
+      "50": "L",
+      "51": "D",
+      "61": "T",
+      "62": "D",
+      "63": "Q",
+      "64": "W",
+      "174": "H",
+      "178": "F",
+      "181": "S",
+      "186": "I",
+      "188": "A",
+      "189": "R",
+      "191": "S",
+      "192": "H",
+      "193": "Y",
+      "195": "A",
+      "196": "N",
+      "199": "K",
+      "200": "M"
+    }
+  },
+  "mean_per_residue_plddt": 0.6234,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}

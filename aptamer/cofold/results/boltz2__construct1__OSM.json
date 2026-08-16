@@ -1,0 +1,87 @@
+{
+  "key": "boltz2__construct1__OSM",
+  "phase": "B",
+  "model": "boltz2",
+  "dna_id": "construct1",
+  "dna_chain_id": "B",
+  "dna_sequence": "TGTGTATAAGTCAAGAGGGTTGAATTGCAACCATCGGCGCCAACATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTAACCCTCTTG",
+  "dna_len": 94,
+  "dna_kind": "switch construct",
+  "dna_rank": 1,
+  "dna_meta": {
+    "rank": 1,
+    "ds": "AACCCTCTTG",
+    "window": "11-20",
+    "tether_nt": "49",
+    "kd_app_nM": "971.2",
+    "dg_switch": "-2.19",
+    "closed_frac": "0.972",
+    "selectivity": "8.34",
+    "structure": "...........(((((((((((((.........................................................)))))))))))))"
+  },
+  "target": "OSM",
+  "target_uniprot": "P13725",
+  "target_chain_id": "A",
+  "target_seq_len": 196,
+  "target_mature_range": [
+    26,
+    221
+  ],
+  "seed": 42,
+  "wall_seconds": 53.9,
+  "success": true,
+  "structure_file": "structures/boltz2__construct1__OSM.cif",
+  "metrics": {
+    "primary_metric": "confidence_score",
+    "metric_type": "Boltz2Metrics",
+    "confidence_score": 0.5076842308044434,
+    "ptm": 0.6480188369750977,
+    "iptm": 0.23550382256507874,
+    "chains_ptm": [
+      0.8730601072311401,
+      0.403463214635849
+    ],
+    "pair_chains_iptm": [
+      [
+        0.8730601072311401,
+        0.23550382256507874
+      ],
+      [
+        0.1804683804512024,
+        0.403463214635849
+      ]
+    ],
+    "avg_pae": 15.937346458435059,
+    "ligand_iptm": 0.0,
+    "protein_iptm": 0.0,
+    "complex_plddt": 0.5757293105125427,
+    "complex_iplddt": 0.554298996925354,
+    "complex_pde": 1.5827693939208984,
+    "complex_ipde": 12.543153762817383
+  },
+  "epitope": {
+    "cutoff_angstrom": 4.0,
+    "n_contact_residues": 14,
+    "residues": {
+      "8": "K",
+      "16": "Q",
+      "20": "Q",
+      "94": "K",
+      "95": "A",
+      "96": "Q",
+      "112": "Q",
+      "113": "M",
+      "115": "R",
+      "117": "N",
+      "119": "L",
+      "120": "G",
+      "123": "N",
+      "124": "N"
+    }
+  },
+  "mean_per_residue_plddt": 0.5757,
+  "chain_ids_in_output": [
+    "A",
+    "B"
+  ]
+}

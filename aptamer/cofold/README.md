@@ -10,25 +10,57 @@ structure-prediction models deployed to Modal via `proto-tools`.
 
 ---
 
-## STATUS: NO STRUCTURES WERE PRODUCED. ALL 18 RUNS FAILED.
+## STATUS: complete. 28/28 predictions succeeded, 28 structures in `structures/`.
 
-Every record in `results/` has `"success": false`. There are no `.cif` or `.pdb` files in this
-directory and no `cofold_summary.json`, because `summarize.py` never ran. Everything below
-describes what was *attempted*, not what was obtained.
+24 Phase A (6 DNA chains × 4 models vs IL-6) + 4 Phase B (construct1 vs the gp130 family,
+boltz2). An earlier attempt did fail all 18 of its runs — dispatch went local, where
+proto-tools cannot run on Windows — and those records were overwritten by successful reruns
+once GPU access opened. `failures` in `cofold_summary.json` is empty.
 
-Cause: the runs executed **locally**, not on Modal, and proto-tools cannot dispatch tools on
-Windows — `RuntimeError: Unsupported operating system: Windows (arch: AMD64)`, raised from
-`proto_tools/utils/tool_instance.py::_ensure_micromamba`. Deploying an app to Modal is not
-sufficient; the call must also be routed there with `device="modal"` on the tool's config.
+### The headline result is a negative one, and it is the point
 
-Separately, `protenix` never deployed at all: all four apps request `H100/H200/A100-80GB` by
-default, and Modal refuses those GPU classes until a payment method is on file — hackathon
-credits alone do not unlock them. A workaround patch to `GPU_DEFAULT` (`A10:1`/`L4:1`) is
-applied in site-packages, with `gpu_profiles.py.orig-backup` alongside it.
+**The four models do not agree on where the aptamer binds IL-6.**
 
-What is still useful here: `run_cofold.py`, `targets.json`, `inputs_snapshot.json` and
-`switches_snapshot.csv` record exactly which sequences and targets were queued, so a rerun on
-Linux, WSL2, or with `device="modal"` wired through needs no re-derivation.
+| DNA chain | mean pairwise Jaccard of contact residues | tolerant ±2 | residues all 4 models agree on | union |
+|---|---|---|---|---|
+| parent45 | 0.168 | 0.236 | **0** | 34 |
+| construct1 | 0.162 | 0.324 | **0** | 82 |
+| construct2 | 0.180 | 0.302 | 1 | 69 |
+| construct3 | 0.143 | 0.211 | 1 | 65 |
+| construct4 | 0.135 | 0.217 | **0** | 70 |
+| construct5 | 0.127 | 0.251 | **0** | 74 |
+
+Out of unions of 34–82 contact residues, the number every model agrees on is zero or one. Some
+pairs share literally nothing (boltz2 vs opendde, Jaccard 0.000, on three chains).
+
+This is the CASP16 finding reproduced on our own molecules with four independent models, and it
+is the empirical justification for the pipeline ranking on strand-displacement thermodynamics
+rather than on predicted structure. It is evidence *for* the design decision, not a setback.
+
+### Off-target specificity — low confidence, one flag worth noting
+
+boltz2, construct1, ipTM against each gp130-family cytokine:
+
+| Target | ipTM | margin vs IL-6 |
+|---|---|---|
+| IL-6 (on-target) | 0.367 | — |
+| **IL-11** | **0.348** | **0.019** |
+| OSM | 0.236 | 0.131 |
+| CNTF | 0.222 | 0.145 |
+| LIF | 0.086 | 0.281 |
+
+IL-11 is essentially indistinguishable from IL-6 by this metric. Treat as a flag to test, not a
+finding: the on-target ipTM of 0.367 is itself below the ~0.5–0.6 usually taken as a confident
+interface, so the whole comparison sits in the low-confidence regime — and the table above
+shows the models disagree about the interface anyway.
+
+### Two caveats on scope
+
+- **The co-folded constructs are stale.** They come from `switches_snapshot.csv`, taken before
+  the ensemble-dG and K_closed corrections and before mismatch tuning. `construct1` here is a
+  94-nt, 49-nt-tether, 971 nM design; the current shortlist leaders are ~55 nt at ~124 nM.
+  Re-run against the current `switches.csv` before using any of this for a figure.
+- Phase B covers one construct with one model. It is a probe, not a specificity screen.
 
 ---
 
